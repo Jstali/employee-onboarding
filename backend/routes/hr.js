@@ -699,7 +699,33 @@ router.get("/employee-forms/:id", async (req, res) => {
       return res.status(404).json({ error: "Employee form not found" });
     }
 
-    res.json({ form: formResult.rows[0] });
+    const formData = formResult.rows[0];
+    
+    // Transform snake_case to camelCase for frontend compatibility
+    const transformedForm = {
+      id: formData.id,
+      name: formData.name,
+      email: formData.email,
+      employeeType: formData.employee_type,
+      status: formData.status,
+      managerId: formData.manager_id,
+      createdAt: formData.created_at,
+      managerName: formData.manager_name,
+      // Transform JSONB fields
+      personalInfo: formData.personal_info || {},
+      bankInfo: formData.bank_info || {},
+      aadharNumber: formData.aadhar_number || "",
+      panNumber: formData.pan_number || "",
+      passportNumber: formData.passport_number || "",
+      educationInfo: formData.education_info || {},
+      techCertificates: formData.tech_certificates || [],
+      photoUrl: formData.photo_url || "",
+      workExperience: formData.work_experience || {},
+      contractPeriod: formData.contract_period || "",
+      joinDate: formData.join_date || ""
+    };
+
+    res.json({ form: transformedForm });
   } catch (error) {
     console.error("Get employee form error:", error);
     res.status(500).json({ error: "Failed to get employee form" });

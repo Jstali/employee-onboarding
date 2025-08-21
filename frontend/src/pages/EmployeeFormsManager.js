@@ -409,8 +409,12 @@ const FormModal = ({ form, isEditing, onClose, onUpdate }) => {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
+    console.log("FormModal received form data:", form);
     setFormData(form);
   }, [form]);
+
+  // Debug: Show raw form data
+  console.log("FormModal current formData:", formData);
 
   const handleInputChange = (section, field, value) => {
     setFormData((prev) => ({

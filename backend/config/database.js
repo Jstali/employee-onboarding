@@ -142,8 +142,8 @@ const createTables = async (client) => {
     // Create master_employees table
     await client.query(`
       CREATE TABLE IF NOT EXISTS master_employees (
-        id SERIAL PRIMARY KEY,
-        user_id INT REFERENCES users(id) ON DELETE SET NULL,
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID REFERENCES users(id) ON DELETE SET NULL,
         name VARCHAR(100) NOT NULL,
         email VARCHAR(100) UNIQUE NOT NULL,
         employee_type VARCHAR(20) CHECK (employee_type IN ('intern','contract','fulltime')),
@@ -151,7 +151,7 @@ const createTables = async (client) => {
         status VARCHAR(20) DEFAULT 'active',
         department VARCHAR(50),
         join_date DATE,
-        manager_id INT REFERENCES master_employees(id),
+        manager_id UUID REFERENCES master_employees(id),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )

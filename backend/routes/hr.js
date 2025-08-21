@@ -863,16 +863,27 @@ router.patch("/employee-forms/:id", async (req, res) => {
 router.post("/employee-forms/:id/initialize", async (req, res) => {
   try {
     const { id } = req.params;
+    
+    console.log("Initialize form request for employee ID:", id);
 
     // Check if employee exists
     const employeeResult = await query(
-      "SELECT id, status FROM users WHERE id = $1 AND role = 'employee'",
+      "SELECT id, name, email, status, role FROM users WHERE id = $1 AND role = 'employee'",
       [id]
     );
 
+    console.log("Employee lookup result:", employeeResult.rows);
+
     if (employeeResult.rows.length === 0) {
-      return res.status(404).json({ error: "Employee not found" });
+      return res.status(404).json({ 
+        error: "Employee not found", 
+        details: "No employee found with the provided ID or the user is not an employee",
+        employeeId: id
+      });
     }
+
+    const employee = employeeResult.rows[0];
+    console.log("Found employee:", employee);
 
     // Check if form already exists
     const existingForm = await query(
@@ -881,7 +892,10 @@ router.post("/employee-forms/:id/initialize", async (req, res) => {
     );
 
     if (existingForm.rows.length > 0) {
-      return res.status(400).json({ error: "Employee form already exists" });
+      return res.status(400).json({ 
+        error: "Employee form already exists",
+        details: "A form has already been initialized for this employee"
+      });
     }
 
     // Create empty form
@@ -891,20 +905,41 @@ router.post("/employee-forms/:id/initialize", async (req, res) => {
       [id]
     );
 
+    console.log("Form initialized successfully for employee:", id);
+
     // Log action
     await logAction(
       req.user.id,
       "employee_form_initialized",
       {
         employee_id: id,
+        employee_name: employee.name,
+        employee_email: employee.email
       },
       req
     );
 
-    res.json({ message: "Employee form initialized successfully" });
+    res.json({ 
+      message: "Employee form initialized successfully",
+      employee: {
+        id: employee.id,
+        name: employee.name,
+        email: employee.email
+      }
+    });
   } catch (error) {
     console.error("Initialize employee form error:", error);
-    res.status(500).json({ error: "Failed to initialize employee form" });
+    console.error("Error details:", {
+      message: error.message,
+      code: error.code,
+      detail: error.detail
+    });
+    
+    res.status(500).json({ 
+      error: "Failed to initialize employee form",
+      details: error.message,
+      code: error.code
+    });
   }
 });
 

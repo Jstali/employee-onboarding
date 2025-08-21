@@ -111,11 +111,20 @@ const EmployeeFormsManager = () => {
 
   const handleCreateForm = async (employeeId) => {
     try {
-      await api.post(`/hr/employee-forms/${employeeId}/initialize`);
+      console.log("Initializing form for employee ID:", employeeId);
+      console.log("Employee ID type:", typeof employeeId);
+
+      const response = await api.post(
+        `/hr/employee-forms/${employeeId}/initialize`
+      );
+      console.log("Initialize form response:", response.data);
+
       alert("Form initialized successfully!");
       setShowCreateModal(false);
       fetchForms(); // Refresh the list
     } catch (err) {
+      console.error("Failed to initialize form:", err);
+      console.error("Error response:", err.response?.data);
       alert(
         "Failed to create form: " + (err.response?.data?.error || err.message)
       );

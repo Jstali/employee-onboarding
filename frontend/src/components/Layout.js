@@ -33,12 +33,6 @@ const Layout = () => {
       roles: ["admin", "hr", "employee"],
     },
     {
-      name: "Admin Panel",
-      href: "/admin",
-      icon: Cog6ToothIcon,
-      roles: ["admin"],
-    },
-    {
       name: "HR Management",
       href: "/hr",
       icon: UsersIcon,

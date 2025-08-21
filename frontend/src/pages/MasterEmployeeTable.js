@@ -9,6 +9,7 @@ import {
   MagnifyingGlassIcon,
   FunnelIcon,
   UserPlusIcon,
+  TrashIcon,
 } from "@heroicons/react/24/outline";
 
 const MasterEmployeeTable = () => {
@@ -124,6 +125,36 @@ const MasterEmployeeTable = () => {
     } catch (err) {
       alert(
         "Failed to deactivate employee: " +
+          (err.response?.data?.error || err.message)
+      );
+    }
+  };
+
+  const handleDeleteEmployee = async (employeeId, employeeName) => {
+    if (
+      !window.confirm(
+        `Are you sure you want to PERMANENTLY DELETE ${employeeName}? This action cannot be undone and will remove all data associated with this employee.`
+      )
+    ) {
+      return;
+    }
+
+    // Second confirmation for critical action
+    if (
+      !window.confirm(
+        `FINAL WARNING: You are about to permanently delete ${employeeName}. This will remove all records and cannot be recovered. Are you absolutely sure?`
+      )
+    ) {
+      return;
+    }
+
+    try {
+      await api.delete(`/master/${employeeId}/permanent`);
+      alert("Employee permanently deleted!");
+      fetchEmployees();
+    } catch (err) {
+      alert(
+        "Failed to delete employee: " +
           (err.response?.data?.error || err.message)
       );
     }
@@ -400,12 +431,21 @@ const MasterEmployeeTable = () => {
                     {employee.status === "active" && (
                       <button
                         onClick={() => handleDeactivateEmployee(employee.id)}
-                        className="text-red-600 hover:text-red-900"
+                        className="text-orange-600 hover:text-orange-900"
                         title="Deactivate Employee"
                       >
                         <UserMinusIcon className="h-4 w-4" />
                       </button>
                     )}
+                    <button
+                      onClick={() =>
+                        handleDeleteEmployee(employee.id, employee.name)
+                      }
+                      className="text-red-600 hover:text-red-900"
+                      title="Delete Employee Permanently"
+                    >
+                      <TrashIcon className="h-4 w-4" />
+                    </button>
                   </td>
                 </tr>
               ))}

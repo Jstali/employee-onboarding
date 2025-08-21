@@ -18,11 +18,28 @@ const PORT = process.env.PORT || 5022;
 // Connect to database
 connectDB();
 
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutes
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100, // limit each IP to 100 requests per windowMs
-  message: "Too many requests from this IP, please try again later.",
+// Rate limiting - more lenient for authentication
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 20, // limit each IP to 20 login attempts per 15 minutes
+  message: {
+    error: "Too many login attempts from this IP, please try again later.",
+    retryAfter: "15 minutes",
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// General rate limiting - more lenient
+const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 200, // limit each IP to 200 requests per 15 minutes
+  message: {
+    error: "Too many requests from this IP, please try again later.",
+    retryAfter: "15 minutes",
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
 });
 
 // CORS configuration
@@ -36,9 +53,12 @@ const corsOptions = {
 app.use(helmet());
 app.use(cors(corsOptions));
 app.use(morgan("combined"));
-app.use(limiter);
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+
+// Apply rate limiting
+app.use("/api/auth", authLimiter); // More lenient for authentication
+app.use(generalLimiter); // General rate limiting for other routes
 
 // Routes
 app.use("/api/auth", authRoutes);
@@ -53,6 +73,22 @@ app.get("/health", (req, res) => {
     status: "OK",
     message: "Employee Onboarding API is running",
     timestamp: new Date().toISOString(),
+  });
+});
+
+// Rate limit status endpoint
+app.get("/rate-limit-status", (req, res) => {
+  res.status(200).json({
+    authLimiter: {
+      windowMs: "15 minutes",
+      maxRequests: 20,
+      description: "Login attempts per 15 minutes",
+    },
+    generalLimiter: {
+      windowMs: "15 minutes",
+      maxRequests: 200,
+      description: "General requests per 15 minutes",
+    },
   });
 });
 

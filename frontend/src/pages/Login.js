@@ -19,7 +19,18 @@ const Login = () => {
     try {
       await login(email, password);
     } catch (err) {
-      setError(err.message || 'Login failed');
+      console.error('Login error:', err);
+      
+      // Handle rate limiting specifically
+      if (err.response?.status === 429) {
+        setError('Too many login attempts. Please wait 15 minutes before trying again.');
+      } else if (err.response?.data?.error) {
+        setError(err.response.data.error);
+      } else if (err.message) {
+        setError(err.message);
+      } else {
+        setError('Login failed. Please check your credentials and try again.');
+      }
     } finally {
       setLoading(false);
     }

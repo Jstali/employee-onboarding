@@ -158,6 +158,58 @@ router.get("/departments/list", requireHRorAdmin, async (req, res) => {
   }
 });
 
+// Hard delete employee permanently (HR/Admin only)
+router.delete("/:id/permanent", requireHRorAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Check if employee exists
+    const existingEmployee = await query(
+      "SELECT id, name, email FROM master_employees WHERE id = $1",
+      [id]
+    );
+
+    if (existingEmployee.rows.length === 0) {
+      return res.status(404).json({ error: "Employee not found" });
+    }
+
+    const employee = existingEmployee.rows[0];
+
+    // Check if employee has any dependent records
+    const dependentRecords = await query(
+      "SELECT COUNT(*) as count FROM master_employees WHERE manager_id = $1",
+      [id]
+    );
+
+    if (parseInt(dependentRecords.rows[0].count) > 0) {
+      return res.status(400).json({
+        error:
+          "Cannot delete employee. This employee is a manager of other employees. Please reassign or deactivate them first.",
+      });
+    }
+
+    // Hard delete - permanently remove from database
+    await query("DELETE FROM master_employees WHERE id = $1", [id]);
+
+    // Log action
+    await logAction(
+      req.user.id,
+      "master_employee_deleted_permanently",
+      {
+        employee_id: id,
+        employee_email: employee.email,
+        employee_name: employee.name,
+      },
+      req
+    );
+
+    res.json({ message: "Employee permanently deleted" });
+  } catch (error) {
+    console.error("Hard delete master employee error:", error);
+    res.status(500).json({ error: "Failed to delete employee" });
+  }
+});
+
 // Get single employee profile (HR/Admin only)
 router.get("/:id", requireHRorAdmin, async (req, res) => {
   try {
@@ -432,58 +484,6 @@ router.delete("/:id", requireHRorAdmin, async (req, res) => {
   } catch (error) {
     console.error("Deactivate master employee error:", error);
     res.status(500).json({ error: "Failed to deactivate employee" });
-  }
-});
-
-// Hard delete employee permanently (HR/Admin only)
-router.delete("/:id/permanent", requireHRorAdmin, async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    // Check if employee exists
-    const existingEmployee = await query(
-      "SELECT id, name, email FROM master_employees WHERE id = $1",
-      [id]
-    );
-
-    if (existingEmployee.rows.length === 0) {
-      return res.status(404).json({ error: "Employee not found" });
-    }
-
-    const employee = existingEmployee.rows[0];
-
-    // Check if employee has any dependent records
-    const dependentRecords = await query(
-      "SELECT COUNT(*) as count FROM master_employees WHERE manager_id = $1",
-      [id]
-    );
-
-    if (parseInt(dependentRecords.rows[0].count) > 0) {
-      return res.status(400).json({
-        error:
-          "Cannot delete employee. This employee is a manager of other employees. Please reassign or deactivate them first.",
-      });
-    }
-
-    // Hard delete - permanently remove from database
-    await query("DELETE FROM master_employees WHERE id = $1", [id]);
-
-    // Log action
-    await logAction(
-      req.user.id,
-      "master_employee_deleted_permanently",
-      {
-        employee_id: id,
-        employee_email: employee.email,
-        employee_name: employee.name,
-      },
-      req
-    );
-
-    res.json({ message: "Employee permanently deleted" });
-  } catch (error) {
-    console.error("Hard delete master employee error:", error);
-    res.status(500).json({ error: "Failed to delete employee" });
   }
 });
 

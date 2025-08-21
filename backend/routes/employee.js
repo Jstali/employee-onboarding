@@ -1,459 +1,427 @@
 const express = require("express");
 const { query } = require("../config/database");
-const {
-  authenticate,
-  requireEmployee,
-  logAction,
-} = require("../middleware/auth");
+const { authenticate, logAction } = require("../middleware/auth");
+const multer = require("multer");
+const path = require("path");
+const fs = require("fs");
 
 const router = express.Router();
 
-// Apply authentication to all employee routes
-router.use(authenticate);
-router.use(requireEmployee);
+// Configure multer for file uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadDir = path.join(__dirname, "../uploads");
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    cb(null, file.fieldname + "-" + uniqueSuffix + path.extname(file.originalname));
+  },
+});
 
-// Get employee's own profile and details
-router.get("/profile", async (req, res) => {
+const upload = multer({
+  storage: storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = /jpeg|jpg|png|pdf|doc|docx/;
+    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+    const mimetype = allowedTypes.test(file.mimetype);
+    
+    if (mimetype && extname) {
+      return cb(null, true);
+    } else {
+      cb(new Error("Only image, PDF, and document files are allowed"));
+    }
+  },
+});
+
+// Check if user needs to change password
+router.get("/check-password-status", authenticate, async (req, res) => {
   try {
-    const employeeResult = await query(
-      `SELECT u.id, u.name, u.email, u.employee_type, u.manager_id, u.status, u.created_at,
-              m.name as manager_name,
-              ed.*
-       FROM users u
-       LEFT JOIN users m ON u.manager_id = m.id
-       LEFT JOIN employee_details ed ON u.id = ed.user_id
-       WHERE u.id = $1`,
+    const userResult = await query(
+      "SELECT is_first_login FROM users WHERE id = $1",
       [req.user.id]
     );
 
-    if (employeeResult.rows.length === 0) {
-      return res.status(404).json({ error: "Employee not found" });
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: "User not found" });
     }
 
-    res.json({ employee: employeeResult.rows[0] });
+    res.json({
+      needsPasswordChange: userResult.rows[0].is_first_login,
+    });
   } catch (error) {
-    console.error("Get employee profile error:", error);
-    res.status(500).json({ error: "Failed to get profile" });
+    console.error("Check password status error:", error);
+    res.status(500).json({ error: "Failed to check password status" });
   }
 });
 
-// Submit/Update employee onboarding form
-router.post("/onboarding-form", async (req, res) => {
+// Change password (for first login)
+router.post("/change-password", authenticate, async (req, res) => {
   try {
+    const { newPassword } = req.body;
+
+    if (!newPassword || newPassword.length < 6) {
+      return res.status(400).json({ 
+        error: "New password must be at least 6 characters long" 
+      });
+    }
+
+    // Hash new password
+    const bcrypt = require("bcryptjs");
+    const newPasswordHash = await bcrypt.hash(newPassword, 12);
+
+    // Update password and mark as not first login
+    await query(
+      `UPDATE users 
+       SET password_hash = $1, is_first_login = false, updated_at = CURRENT_TIMESTAMP 
+       WHERE id = $2`,
+      [newPasswordHash, req.user.id]
+    );
+
+    // Log password change
+    await logAction(req.user.id, "first_password_set", {}, req);
+
+    res.json({ message: "Password changed successfully" });
+  } catch (error) {
+    console.error("Change password error:", error);
+    res.status(500).json({ error: "Failed to change password" });
+  }
+});
+
+// Get onboarding form data
+router.get("/onboarding-form", authenticate, async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    // Check if user is active
+    const userResult = await query(
+      "SELECT status FROM users WHERE id = $1",
+      [userId]
+    );
+
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    if (userResult.rows[0].status === "active") {
+      return res.status(200).json({ 
+        message: "User is already active. Redirect to attendance portal.",
+        status: "active"
+      });
+    }
+
+    // Get existing form data
+    const formResult = await query(
+      "SELECT * FROM employee_details WHERE user_id = $1",
+      [userId]
+    );
+
+    // Get uploaded documents
+    const documentsResult = await query(
+      "SELECT * FROM employee_documents WHERE user_id = $1 ORDER BY document_type, created_at",
+      [userId]
+    );
+
+    let formData = {
+      personalInfo: {},
+      bankInfo: {},
+      educationInfo: {},
+      techCertificates: {},
+      workExperience: {},
+      contractPeriod: {},
+      documents: documentsResult.rows,
+    };
+
+    if (formResult.rows.length > 0) {
+      const existingForm = formResult.rows[0];
+      formData = {
+        ...formData,
+        personalInfo: existingForm.personal_info || {},
+        bankInfo: existingForm.bank_info || {},
+        educationInfo: existingForm.education_info || {},
+        techCertificates: existingForm.tech_certificates || {},
+        workExperience: existingForm.work_experience || {},
+        contractPeriod: existingForm.contract_period || {},
+        aadharNumber: existingForm.aadhar_number || "",
+        panNumber: existingForm.pan_number || "",
+        passportNumber: existingForm.passport_number || "",
+        joinDate: existingForm.join_date || "",
+        photoUrl: existingForm.photo_url || "",
+      };
+    }
+
+    res.json({ formData });
+  } catch (error) {
+    console.error("Get onboarding form error:", error);
+    res.status(500).json({ error: "Failed to fetch form data" });
+  }
+});
+
+// Submit onboarding form with file uploads
+router.post("/onboarding-form", authenticate, upload.fields([
+  { name: "profilePhoto", maxCount: 1 },
+  { name: "aadharDocument", maxCount: 1 },
+  { name: "panDocument", maxCount: 1 },
+  { name: "tenthMarksheet", maxCount: 1 },
+  { name: "twelfthMarksheet", maxCount: 1 },
+  { name: "degreeCertificate", maxCount: 1 },
+]), async (req, res) => {
+  try {
+    const userId = req.user.id;
     const {
       personalInfo,
       bankInfo,
+      educationInfo,
+      techCertificates,
+      workExperience,
+      contractPeriod,
       aadharNumber,
       panNumber,
       passportNumber,
-      educationInfo,
-      techCertificates,
-      photoUrl,
-      workExperience,
-      contractPeriod,
       joinDate,
     } = req.body;
 
-    // Validate required fields based on employee type
-    const requiredFields = [
-      "personalInfo",
-      "bankInfo",
-      "aadharNumber",
-      "panNumber",
-      "educationInfo",
-    ];
+    // Parse JSON fields
+    const parsedPersonalInfo = typeof personalInfo === "string" ? JSON.parse(personalInfo) : personalInfo;
+    const parsedBankInfo = typeof bankInfo === "string" ? JSON.parse(bankInfo) : bankInfo;
+    const parsedEducationInfo = typeof educationInfo === "string" ? JSON.parse(educationInfo) : educationInfo;
+    const parsedTechCertificates = typeof techCertificates === "string" ? JSON.parse(techCertificates) : techCertificates;
+    const parsedWorkExperience = typeof workExperience === "string" ? JSON.parse(workExperience) : workExperience;
+    const parsedContractPeriod = typeof contractPeriod === "string" ? JSON.parse(contractPeriod) : contractPeriod;
 
-    if (req.user.employee_type === "contract") {
-      requiredFields.push("workExperience", "contractPeriod");
-    } else if (req.user.employee_type === "fulltime") {
-      requiredFields.push("joinDate", "passportNumber");
+    // Handle file uploads
+    const files = req.files;
+    let photoUrl = "";
+    const documents = [];
+
+    if (files.profilePhoto && files.profilePhoto[0]) {
+      photoUrl = `/uploads/${files.profilePhoto[0].filename}`;
     }
 
-    // Check if all required fields are provided
-    for (const field of requiredFields) {
-      if (!req.body[field]) {
-        return res.status(400).json({
-          error: `${field
-            .replace(/([A-Z])/g, " $1")
-            .toLowerCase()} is required for ${
-            req.user.employee_type
-          } employees`,
+    // Process document uploads
+    const documentTypes = {
+      aadharDocument: "aadhar",
+      panDocument: "pan",
+      tenthMarksheet: "tenth_marksheet",
+      twelfthMarksheet: "twelfth_marksheet",
+      degreeCertificate: "degree_certificate",
+    };
+
+    for (const [fieldName, documentType] of Object.entries(documentTypes)) {
+      if (files[fieldName] && files[fieldName][0]) {
+        const file = files[fieldName][0];
+        documents.push({
+          documentType,
+          fileName: file.originalname,
+          filePath: `/uploads/${file.filename}`,
+          fileSize: file.size,
+          mimeType: file.mimetype,
+          isRequired: documentType === "aadhar" || documentType === "pan",
         });
       }
     }
 
-    // Check if employee details already exist
-    const existingDetails = await query(
+    // Check if form already exists
+    const existingForm = await query(
       "SELECT id FROM employee_details WHERE user_id = $1",
-      [req.user.id]
+      [userId]
     );
 
-    if (existingDetails.rows.length > 0) {
-      // Update existing record
+    if (existingForm.rows.length > 0) {
+      // Update existing form
       await query(
-        `UPDATE employee_details SET 
-         personal_info = $1,
-         bank_info = $2,
-         aadhar_number = $3,
-         pan_number = $4,
-         passport_number = $5,
-         education_info = $6,
-         tech_certificates = $7,
-         photo_url = $8,
-         work_experience = $9,
-         contract_period = $10,
-         join_date = $11,
-         updated_at = CURRENT_TIMESTAMP
+        `UPDATE employee_details 
+         SET personal_info = $1, bank_info = $2, education_info = $3, 
+             tech_certificates = $4, work_experience = $5, contract_period = $6,
+             aadhar_number = $7, pan_number = $8, passport_number = $9,
+             join_date = $10, photo_url = $11, updated_at = CURRENT_TIMESTAMP
          WHERE user_id = $12`,
         [
-          personalInfo,
-          bankInfo,
-          aadharNumber,
-          panNumber,
+          JSON.stringify(parsedPersonalInfo),
+          JSON.stringify(parsedBankInfo),
+          JSON.stringify(parsedEducationInfo),
+          JSON.stringify(parsedTechCertificates),
+          JSON.stringify(parsedWorkExperience),
+          JSON.stringify(parsedContractPeriod),
+          aadharNumber || null,
+          panNumber || null,
           passportNumber || null,
-          educationInfo,
-          techCertificates || null,
-          photoUrl || null,
-          workExperience || null,
-          contractPeriod || null,
           joinDate || null,
-          req.user.id,
+          photoUrl || null,
+          userId,
         ]
       );
     } else {
-      // Create new record
+      // Insert new form
       await query(
         `INSERT INTO employee_details (
-         user_id, personal_info, bank_info, aadhar_number, pan_number, passport_number,
-         education_info, tech_certificates, photo_url, work_experience, contract_period, join_date
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+          user_id, personal_info, bank_info, education_info, tech_certificates,
+          work_experience, contract_period, aadhar_number, pan_number, 
+          passport_number, join_date, photo_url
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
         [
-          req.user.id,
-          personalInfo,
-          bankInfo,
-          aadharNumber,
-          panNumber,
+          userId,
+          JSON.stringify(parsedPersonalInfo),
+          JSON.stringify(parsedBankInfo),
+          JSON.stringify(parsedEducationInfo),
+          JSON.stringify(parsedTechCertificates),
+          JSON.stringify(parsedWorkExperience),
+          JSON.stringify(parsedContractPeriod),
+          aadharNumber || null,
+          panNumber || null,
           passportNumber || null,
-          educationInfo,
-          techCertificates || null,
-          photoUrl || null,
-          workExperience || null,
-          contractPeriod || null,
           joinDate || null,
+          photoUrl || null,
         ]
       );
     }
 
-    // Log action
-    await logAction(
-      req.user.id,
-      "onboarding_form_submitted",
-      {
-        employee_type: req.user.employee_type,
-        has_photo: !!photoUrl,
-        has_certificates: !!techCertificates,
-      },
-      req
-    );
+    // Save documents to database
+    for (const doc of documents) {
+      await query(
+        `INSERT INTO employee_documents (
+          user_id, document_type, file_name, file_path, file_size, mime_type, is_required
+        ) VALUES ($1, $2, $3, $4, $5, $6)`,
+        [
+          userId,
+          doc.documentType,
+          doc.fileName,
+          doc.filePath,
+          doc.fileSize,
+          doc.mimeType,
+          doc.isRequired,
+        ]
+      );
+    }
 
-    res.json({ message: "Onboarding form submitted successfully" });
+    // Log form submission
+    await logAction(userId, "onboarding_form_submitted", {
+      hasPhoto: !!photoUrl,
+      documentsCount: documents.length,
+    }, req);
+
+    res.json({
+      message: "Onboarding form submitted successfully",
+      photoUrl,
+      documentsCount: documents.length,
+    });
   } catch (error) {
     console.error("Submit onboarding form error:", error);
-    res.status(500).json({ error: "Failed to submit onboarding form" });
-  }
-});
-
-// Get employee's onboarding form
-router.get("/onboarding-form", async (req, res) => {
-  try {
-    const formResult = await query(
-      "SELECT * FROM employee_details WHERE user_id = $1",
-      [req.user.id]
-    );
-
-    if (formResult.rows.length === 0) {
-      return res.json({ form: null });
-    }
-
-    res.json({ form: formResult.rows[0] });
-  } catch (error) {
-    console.error("Get onboarding form error:", error);
-    res.status(500).json({ error: "Failed to get onboarding form" });
-  }
-});
-
-// Update specific sections of the form
-router.patch("/onboarding-form", async (req, res) => {
-  try {
-    const updateData = req.body;
-    const allowedFields = [
-      "personalInfo",
-      "bankInfo",
-      "aadharNumber",
-      "panNumber",
-      "passportNumber",
-      "educationInfo",
-      "techCertificates",
-      "photoUrl",
-      "workExperience",
-      "contractPeriod",
-      "joinDate",
-    ];
-
-    // Filter out invalid fields
-    const validUpdates = {};
-    for (const field of allowedFields) {
-      if (updateData[field] !== undefined) {
-        validUpdates[field] = updateData[field];
-      }
-    }
-
-    if (Object.keys(validUpdates).length === 0) {
-      return res.status(400).json({ error: "No valid fields to update" });
-    }
-
-    // Check if employee details exist
-    const existingDetails = await query(
-      "SELECT id FROM employee_details WHERE user_id = $1",
-      [req.user.id]
-    );
-
-    if (existingDetails.rows.length === 0) {
-      return res
-        .status(404)
-        .json({
-          error:
-            "Onboarding form not found. Please submit the complete form first.",
-        });
-    }
-
-    // Build update query
-    const updates = [];
-    const params = [];
-    let paramCount = 0;
-
-    if (validUpdates.personalInfo !== undefined) {
-      paramCount++;
-      updates.push(`personal_info = $${paramCount}`);
-      params.push(validUpdates.personalInfo);
-    }
-
-    if (validUpdates.bankInfo !== undefined) {
-      paramCount++;
-      updates.push(`bank_info = $${paramCount}`);
-      params.push(validUpdates.bankInfo);
-    }
-
-    if (validUpdates.aadharNumber !== undefined) {
-      paramCount++;
-      updates.push(`aadhar_number = $${paramCount}`);
-      params.push(validUpdates.aadharNumber);
-    }
-
-    if (validUpdates.panNumber !== undefined) {
-      paramCount++;
-      updates.push(`pan_number = $${paramCount}`);
-      params.push(validUpdates.panNumber);
-    }
-
-    if (validUpdates.passportNumber !== undefined) {
-      paramCount++;
-      updates.push(`passport_number = $${paramCount}`);
-      params.push(validUpdates.passportNumber);
-    }
-
-    if (validUpdates.educationInfo !== undefined) {
-      paramCount++;
-      updates.push(`education_info = $${paramCount}`);
-      params.push(validUpdates.educationInfo);
-    }
-
-    if (validUpdates.techCertificates !== undefined) {
-      paramCount++;
-      updates.push(`tech_certificates = $${paramCount}`);
-      params.push(validUpdates.techCertificates);
-    }
-
-    if (validUpdates.photoUrl !== undefined) {
-      paramCount++;
-      updates.push(`photo_url = $${paramCount}`);
-      params.push(validUpdates.photoUrl);
-    }
-
-    if (validUpdates.workExperience !== undefined) {
-      paramCount++;
-      updates.push(`work_experience = $${paramCount}`);
-      params.push(validUpdates.workExperience);
-    }
-
-    if (validUpdates.contractPeriod !== undefined) {
-      paramCount++;
-      updates.push(`contract_period = $${paramCount}`);
-      params.push(validUpdates.contractPeriod);
-    }
-
-    if (validUpdates.joinDate !== undefined) {
-      paramCount++;
-      updates.push(`join_date = $${paramCount}`);
-      params.push(validUpdates.joinDate);
-    }
-
-    // Add updated_at and user_id to params
-    paramCount++;
-    updates.push(`updated_at = CURRENT_TIMESTAMP`);
-    paramCount++;
-    params.push(req.user.id);
-
-    // Update the form
-    await query(
-      `UPDATE employee_details SET ${updates.join(
-        ", "
-      )} WHERE user_id = $${paramCount}`,
-      params
-    );
-
-    // Log action
-    await logAction(
-      req.user.id,
-      "onboarding_form_updated",
-      {
-        updated_fields: Object.keys(validUpdates),
-      },
-      req
-    );
-
-    res.json({ message: "Onboarding form updated successfully" });
-  } catch (error) {
-    console.error("Update onboarding form error:", error);
-    res.status(500).json({ error: "Failed to update onboarding form" });
+    res.status(500).json({ error: "Failed to submit form" });
   }
 });
 
 // Get form requirements based on employee type
-router.get("/form-requirements", async (req, res) => {
+router.get("/form-requirements", authenticate, async (req, res) => {
   try {
+    const userId = req.user.id;
+
+    const userResult = await query(
+      "SELECT employee_type FROM users WHERE id = $1",
+      [userId]
+    );
+
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    const employeeType = userResult.rows[0].employee_type || "fulltime";
+
     const requirements = {
-      intern: {
-        required: [
-          "personalInfo",
-          "bankInfo",
-          "aadharNumber",
-          "panNumber",
-          "educationInfo",
-        ],
-        optional: ["techCertificates", "photoUrl"],
-        description:
-          "Intern employees need to provide basic personal, bank, and identity information along with education details.",
+      personalInfo: {
+        required: true,
+        fields: ["firstName", "lastName", "email", "phone", "address", "emergencyContact"],
       },
-      contract: {
-        required: [
-          "personalInfo",
-          "bankInfo",
-          "aadharNumber",
-          "panNumber",
-          "educationInfo",
-          "workExperience",
-          "contractPeriod",
-        ],
-        optional: ["techCertificates", "photoUrl"],
-        description:
-          "Contract employees need to provide all basic information plus work experience and contract period details.",
+      bankInfo: {
+        required: true,
+        fields: ["accountNumber", "bankName", "ifscCode", "branchName"],
       },
-      fulltime: {
-        required: [
-          "personalInfo",
-          "bankInfo",
-          "aadharNumber",
-          "panNumber",
-          "educationInfo",
-          "joinDate",
-          "passportNumber",
-        ],
-        optional: ["techCertificates", "photoUrl"],
-        description:
-          "Full-time employees need to provide all basic information plus join date and passport details.",
+      educationInfo: {
+        required: true,
+        fields: ["highestQualification", "institution", "yearOfCompletion"],
+      },
+      documents: {
+        profilePhoto: { required: true, types: ["jpg", "jpeg", "png"] },
+        aadhar: { required: true, types: ["jpg", "jpeg", "png", "pdf"] },
+        pan: { required: true, types: ["jpg", "jpeg", "png", "pdf"] },
+        tenthMarksheet: { required: false, types: ["jpg", "jpeg", "png", "pdf"] },
+        twelfthMarksheet: { required: false, types: ["jpg", "jpeg", "png", "pdf"] },
+        degreeCertificate: { required: false, types: ["jpg", "jpeg", "png", "pdf"] },
       },
     };
 
-    const employeeType = req.user.employee_type;
-    const formRequirements = requirements[employeeType] || requirements.intern;
+    // Add contract-specific requirements
+    if (employeeType === "contract") {
+      requirements.contractPeriod = {
+        required: true,
+        fields: ["startDate", "endDate", "contractType", "terms"],
+      };
+    }
 
-    res.json({
-      employeeType,
-      requirements: formRequirements,
-      currentStatus: req.user.status,
-    });
+    res.json({ requirements, employeeType });
   } catch (error) {
     console.error("Get form requirements error:", error);
-    res.status(500).json({ error: "Failed to get form requirements" });
+    res.status(500).json({ error: "Failed to fetch requirements" });
   }
 });
 
-// Check form completion status
-router.get("/form-status", async (req, res) => {
+// Get current user profile
+router.get("/profile", authenticate, async (req, res) => {
   try {
+    const userId = req.user.id;
+
+    const userResult = await query(
+      `SELECT u.id, u.name, u.email, u.role, u.employee_type, u.status, u.created_at,
+              ed.join_date, ed.photo_url
+       FROM users u
+       LEFT JOIN employee_details ed ON u.id = ed.user_id
+       WHERE u.id = $1`,
+      [userId]
+    );
+
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    res.json({ user: userResult.rows[0] });
+  } catch (error) {
+    console.error("Get profile error:", error);
+    res.status(500).json({ error: "Failed to get profile" });
+  }
+});
+
+// Get form status
+router.get("/form-status", authenticate, async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const userResult = await query(
+      "SELECT status FROM users WHERE id = $1",
+      [userId]
+    );
+
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
     const formResult = await query(
-      "SELECT * FROM employee_details WHERE user_id = $1",
-      [req.user.id]
+      "SELECT id FROM employee_details WHERE user_id = $1",
+      [userId]
     );
 
-    if (formResult.rows.length === 0) {
-      return res.json({
-        completed: false,
-        progress: 0,
-        missingFields: [],
-        message: "Form not started",
-      });
-    }
+    const status = {
+      userStatus: userResult.rows[0].status,
+      formSubmitted: formResult.rows.length > 0,
+      canAccessAttendance: userResult.rows[0].status === "active",
+    };
 
-    const form = formResult.rows[0];
-    const employeeType = req.user.employee_type;
-
-    // Define required fields based on employee type
-    let requiredFields = [
-      "personal_info",
-      "bank_info",
-      "aadhar_number",
-      "pan_number",
-      "education_info",
-    ];
-
-    if (employeeType === "contract") {
-      requiredFields.push("work_experience", "contract_period");
-    } else if (employeeType === "fulltime") {
-      requiredFields.push("join_date", "passport_number");
-    }
-
-    // Check which required fields are missing
-    const missingFields = [];
-    let completedFields = 0;
-
-    for (const field of requiredFields) {
-      if (
-        form[field] &&
-        (typeof form[field] === "object"
-          ? Object.keys(form[field]).length > 0
-          : form[field].toString().trim() !== "")
-      ) {
-        completedFields++;
-      } else {
-        missingFields.push(field.replace(/_/g, " "));
-      }
-    }
-
-    const progress = Math.round(
-      (completedFields / requiredFields.length) * 100
-    );
-    const completed = progress === 100;
-
-    res.json({
-      completed,
-      progress,
-      missingFields,
-      message: completed
-        ? "Form completed"
-        : `${completedFields}/${requiredFields.length} sections completed`,
-    });
+    res.json(status);
   } catch (error) {
     console.error("Get form status error:", error);
     res.status(500).json({ error: "Failed to get form status" });
@@ -461,19 +429,19 @@ router.get("/form-status", async (req, res) => {
 });
 
 // Get manager information
-router.get("/manager", async (req, res) => {
+router.get("/manager", authenticate, async (req, res) => {
   try {
-    if (!req.user.manager_id) {
-      return res.json({ manager: null, message: "No manager assigned yet" });
-    }
+    const userId = req.user.id;
 
     const managerResult = await query(
-      "SELECT id, name, email, role, employee_type FROM users WHERE id = $1",
-      [req.user.manager_id]
+      `SELECT u.id, u.name, u.email, u.role
+       FROM users u
+       WHERE u.id = (SELECT manager_id FROM users WHERE id = $1)`,
+      [userId]
     );
 
     if (managerResult.rows.length === 0) {
-      return res.json({ manager: null, message: "Manager not found" });
+      return res.json({ manager: null });
     }
 
     res.json({ manager: managerResult.rows[0] });

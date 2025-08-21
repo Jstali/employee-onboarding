@@ -37,23 +37,24 @@ const connectDB = async () => {
 
 const createTables = async (client) => {
   try {
-    // Users table
+    // Users table - Updated for new authentication flow
     await client.query(`
       CREATE TABLE IF NOT EXISTS users (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         name VARCHAR(255) NOT NULL,
         email VARCHAR(255) UNIQUE NOT NULL,
         password_hash VARCHAR(255) NOT NULL,
-        role VARCHAR(20) NOT NULL CHECK (role IN ('admin', 'hr', 'employee')),
+        role VARCHAR(20) NOT NULL CHECK (role IN ('hr', 'employee')),
         employee_type VARCHAR(20) CHECK (employee_type IN ('intern', 'contract', 'fulltime')),
         manager_id UUID REFERENCES users(id),
-        status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+        status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'rejected')),
+        is_first_login BOOLEAN DEFAULT true,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
 
-    // Employee Details table
+    // Employee Details table - Updated for file uploads
     await client.query(`
       CREATE TABLE IF NOT EXISTS employee_details (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -87,6 +88,37 @@ const createTables = async (client) => {
       )
     `);
 
+    // Employee Documents table - New table for file management
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS employee_documents (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+        document_type VARCHAR(50) NOT NULL,
+        file_name VARCHAR(255) NOT NULL,
+        file_path TEXT NOT NULL,
+        file_size INTEGER NOT NULL,
+        mime_type VARCHAR(100) NOT NULL,
+        is_required BOOLEAN DEFAULT false,
+        uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Attendance table - New table for attendance management
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS attendance (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+        date DATE NOT NULL,
+        status VARCHAR(20) NOT NULL CHECK (status IN ('present', 'wfh', 'leave')),
+        reason TEXT,
+        marked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id, date)
+      )
+    `);
+
     // Audit/Logs table
     await client.query(`
       CREATE TABLE IF NOT EXISTS audit_logs (
@@ -105,38 +137,37 @@ const createTables = async (client) => {
       CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
       CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
       CREATE INDEX IF NOT EXISTS idx_users_status ON users(status);
+      CREATE INDEX IF NOT EXISTS idx_users_is_first_login ON users(is_first_login);
       CREATE INDEX IF NOT EXISTS idx_employee_details_user_id ON employee_details(user_id);
+      CREATE INDEX IF NOT EXISTS idx_employee_documents_user_id ON employee_documents(user_id);
+      CREATE INDEX IF NOT EXISTS idx_employee_documents_type ON employee_documents(document_type);
+      CREATE INDEX IF NOT EXISTS idx_attendance_user_id ON attendance(user_id);
+      CREATE INDEX IF NOT EXISTS idx_attendance_date ON attendance(date);
+      CREATE INDEX IF NOT EXISTS idx_attendance_status ON attendance(status);
+      CREATE INDEX IF NOT EXISTS idx_attendance_user_date ON attendance(user_id, date);
       CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id);
       CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at);
     `);
 
-    // Insert default admin user if not exists
-    const adminExists = await client.query(
+    // Insert default HR user if not exists
+    const hrExists = await client.query(
       "SELECT id FROM users WHERE role = $1 LIMIT 1",
-      ["admin"]
+      ["hr"]
     );
 
-    if (adminExists.rows.length === 0) {
+    if (hrExists.rows.length === 0) {
       const bcrypt = require("bcryptjs");
-      const hashedPassword = await bcrypt.hash("admin123", 12);
+      const hashedPassword = await bcrypt.hash("hr123", 12);
 
       await client.query(
         `
-        INSERT INTO users (name, email, password_hash, role, status)
-        VALUES ($1, $2, $3, $4, $5)
+        INSERT INTO users (name, email, password_hash, role, status, is_first_login)
+        VALUES ($1, $2, $3, $4, $5, $6)
       `,
-        [
-          "System Admin",
-          "admin@company.com",
-          hashedPassword,
-          "admin",
-          "approved",
-        ]
+        ["HR Manager", "hr@company.com", hashedPassword, "hr", "active", false]
       );
 
-      console.log(
-        "👑 Default admin user created (admin@company.com / admin123)"
-      );
+      console.log("👔 Default HR user created (hr@company.com / hr123)");
     }
 
     // Create master_employees table
@@ -147,7 +178,7 @@ const createTables = async (client) => {
         name VARCHAR(100) NOT NULL,
         email VARCHAR(100) UNIQUE NOT NULL,
         employee_type VARCHAR(20) CHECK (employee_type IN ('intern','contract','fulltime')),
-        role VARCHAR(20) CHECK (role IN ('employee','manager','hr','admin')),
+        role VARCHAR(20) CHECK (role IN ('employee','manager','hr')),
         status VARCHAR(20) DEFAULT 'active',
         department VARCHAR(50),
         join_date DATE,
@@ -170,20 +201,6 @@ const createTables = async (client) => {
     await client.query(`
       CREATE INDEX IF NOT EXISTS idx_master_employees_department ON master_employees(department)
     `);
-
-    // Insert default admin into master_employees if not exists
-    const adminExistsMaster = await client.query(
-      "SELECT id FROM master_employees WHERE email = $1",
-      ["admin@company.com"]
-    );
-
-    if (adminExistsMaster.rows.length === 0) {
-      await client.query(`
-        INSERT INTO master_employees (user_id, name, email, employee_type, role, status, department, join_date)
-        SELECT id, name, email, 'fulltime', role, status, 'IT', created_at::date
-        FROM users WHERE email = 'admin@company.com'
-      `);
-    }
 
     // Insert default HR into master_employees if not exists
     const hrExistsMaster = await client.query(

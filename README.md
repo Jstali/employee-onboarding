@@ -5,6 +5,7 @@ A comprehensive full-stack application for managing employee onboarding processe
 ## ✨ Features
 
 ### 🔐 Authentication & Authorization
+
 - **Opaque Token Authentication** (not JWT)
 - **Role-Based Access Control** with three roles:
   - **Admin**: Full system access, user management, audit logs
@@ -12,6 +13,7 @@ A comprehensive full-stack application for managing employee onboarding processe
   - **Employee**: Self-service onboarding, profile viewing
 
 ### 👥 Employee Management
+
 - **Dynamic Onboarding Forms** based on employee type (Intern, Contract, Full-time)
 - **Multi-step Form Process** with validation
 - **Document Upload Support** (photos, certificates)
@@ -19,6 +21,7 @@ A comprehensive full-stack application for managing employee onboarding processe
 - **Status Tracking** (Pending, Approved, Rejected)
 
 ### 📊 Master Employee Table (NEW!)
+
 - **Comprehensive Employee Database** with all employee information
 - **Advanced Filtering** by type, role, department, status
 - **Search Functionality** across name and email
@@ -28,12 +31,14 @@ A comprehensive full-stack application for managing employee onboarding processe
 - **Manager Hierarchy** tracking
 
 ### 📧 Communication
+
 - **Automated Email Notifications** using Nodemailer
 - **Gmail Integration** with real credentials
 - **Employee Credential Delivery**
 - **Status Update Notifications**
 
 ### 🔍 Audit & Monitoring
+
 - **Comprehensive Audit Logging** for all actions
 - **User Activity Tracking**
 - **Security Event Monitoring**
@@ -42,6 +47,7 @@ A comprehensive full-stack application for managing employee onboarding processe
 ## 🛠️ Technology Stack
 
 ### Backend
+
 - **Node.js** with Express.js framework
 - **PostgreSQL** database with JSONB support
 - **Bcrypt.js** for password hashing
@@ -49,6 +55,7 @@ A comprehensive full-stack application for managing employee onboarding processe
 - **Custom authentication middleware**
 
 ### Frontend
+
 - **React.js** with modern hooks
 - **Tailwind CSS** for responsive design
 - **React Router** for navigation
@@ -58,12 +65,14 @@ A comprehensive full-stack application for managing employee onboarding processe
 ## 🗄️ Database Schema
 
 ### Core Tables
+
 - `users` - User accounts and authentication
 - `employee_details` - Onboarding form data
 - `audit_logs` - System activity tracking
 - `master_employees` - **NEW!** Comprehensive employee database
 
 ### Master Employees Table Structure
+
 ```sql
 CREATE TABLE master_employees (
   id SERIAL PRIMARY KEY,
@@ -84,17 +93,20 @@ CREATE TABLE master_employees (
 ## 🚀 Quick Start
 
 ### Prerequisites
+
 - Node.js 16+ and npm
 - PostgreSQL 12+
 - Gmail account for email functionality
 
 ### 1. Clone Repository
+
 ```bash
 git clone https://github.com/Jstali/employee-onboarding.git
 cd employee-onboarding
 ```
 
 ### 2. Backend Setup
+
 ```bash
 cd backend
 npm install
@@ -109,6 +121,7 @@ npm start
 ```
 
 ### 3. Frontend Setup
+
 ```bash
 cd frontend
 npm install
@@ -123,6 +136,7 @@ npm start
 ```
 
 ### 4. Database Setup
+
 ```bash
 # The application will automatically create tables on first run
 # Ensure PostgreSQL is running and accessible
@@ -131,6 +145,7 @@ npm start
 ## 🔧 Configuration
 
 ### Backend Environment Variables (`backend/config.env`)
+
 ```env
 PORT=5022
 FRONTEND_URL=http://localhost:5180
@@ -144,6 +159,7 @@ EMAIL_PASS=your-app-password
 ```
 
 ### Frontend Environment Variables (`frontend/.env`)
+
 ```env
 PORT=5180
 REACT_APP_API_URL=http://localhost:5022/api
@@ -152,6 +168,7 @@ REACT_APP_API_URL=http://localhost:5022/api
 ## 📱 User Interface
 
 ### Admin Dashboard
+
 - **System Statistics** overview
 - **User Management** interface
 - **Audit Logs** viewer
@@ -159,6 +176,7 @@ REACT_APP_API_URL=http://localhost:5022/api
 - **Master Employee Table** access
 
 ### HR Dashboard
+
 - **Employee Creation** and management
 - **Onboarding Approval** workflow
 - **Forms Management** (view, edit, delete)
@@ -166,12 +184,14 @@ REACT_APP_API_URL=http://localhost:5022/api
 - **Master Employee Table** access
 
 ### Employee Portal
+
 - **Dynamic Onboarding Forms**
 - **Profile Management**
 - **Status Tracking**
 - **Document Upload**
 
 ### Master Employee Table (NEW!)
+
 - **Advanced Filtering** and search
 - **Bulk Operations** support
 - **Department Management**
@@ -181,17 +201,20 @@ REACT_APP_API_URL=http://localhost:5022/api
 ## 🔌 API Endpoints
 
 ### Authentication
+
 - `POST /api/auth/login` - User login
 - `POST /api/auth/logout` - User logout
 - `GET /api/auth/profile` - Get user profile
 
 ### Admin Routes
+
 - `GET /api/admin/statistics` - System statistics
 - `GET /api/admin/users` - User management
 - `GET /api/admin/audit-logs` - Audit logs
 - `POST /api/admin/import-employees` - **NEW!** Import employees
 
 ### HR Routes
+
 - `GET /api/hr/employees` - Employee list
 - `POST /api/hr/employees` - Create employee
 - `PATCH /api/hr/employees/:id/status` - Update status
@@ -200,6 +223,7 @@ REACT_APP_API_URL=http://localhost:5022/api
 - `GET /api/hr/managers` - Available managers
 
 ### Master Employee Routes (NEW!)
+
 - `GET /api/master` - List all employees with filters
 - `GET /api/master/:id` - Get employee profile
 - `POST /api/master` - Add new employee
@@ -209,6 +233,7 @@ REACT_APP_API_URL=http://localhost:5022/api
 - `GET /api/master/profile` - Get own profile (employees)
 
 ### Employee Routes
+
 - `GET /api/employee/form` - Get onboarding form
 - `POST /api/employee/form` - Submit onboarding form
 - `PATCH /api/employee/form` - Update onboarding form
@@ -226,11 +251,13 @@ REACT_APP_API_URL=http://localhost:5022/api
 ## 📧 Email Integration
 
 ### Gmail Setup
+
 1. Enable 2-Factor Authentication
 2. Generate App Password
 3. Use App Password in `EMAIL_PASS`
 
 ### Email Templates
+
 - **Welcome Emails** with credentials
 - **Status Update Notifications**
 - **Manager Assignment** notifications
@@ -239,6 +266,7 @@ REACT_APP_API_URL=http://localhost:5022/api
 ## 🚀 Deployment
 
 ### Production Considerations
+
 - Use environment variables for all secrets
 - Set up proper CORS origins
 - Configure production database
@@ -247,6 +275,7 @@ REACT_APP_API_URL=http://localhost:5022/api
 - Set up monitoring and logging
 
 ### Docker Support (Coming Soon)
+
 - Multi-stage builds
 - Environment-specific configurations
 - Health checks
@@ -255,18 +284,21 @@ REACT_APP_API_URL=http://localhost:5022/api
 ## 🧪 Testing
 
 ### Backend Testing
+
 ```bash
 cd backend
 npm test
 ```
 
 ### Frontend Testing
+
 ```bash
 cd frontend
 npm test
 ```
 
 ### API Testing
+
 ```bash
 # Use tools like Postman or curl
 curl -X POST http://localhost:5022/api/auth/login \
@@ -285,6 +317,7 @@ curl -X POST http://localhost:5022/api/auth/login \
 ## 🔄 Workflow
 
 ### Employee Onboarding Process
+
 1. **HR Creates** employee account
 2. **Employee Receives** credentials via email
 3. **Employee Completes** onboarding form
@@ -293,6 +326,7 @@ curl -X POST http://localhost:5022/api/auth/login \
 6. **Employee Gains** access to system
 
 ### Master Employee Management
+
 1. **HR/Admin Views** master employee table
 2. **Filters and Searches** for specific employees
 3. **Updates Employee** information
@@ -314,6 +348,7 @@ This project is licensed under the MIT License.
 ## 🆘 Support
 
 For support and questions:
+
 - Create an issue on GitHub
 - Check the documentation
 - Review the code examples

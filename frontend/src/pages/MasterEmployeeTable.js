@@ -296,7 +296,6 @@ const MasterEmployeeTable = () => {
               <option value="employee">Employee</option>
               <option value="manager">Manager</option>
               <option value="hr">HR</option>
-              <option value="admin">Admin</option>
             </select>
           </div>
           <div>
@@ -706,7 +705,6 @@ const EditEmployeeModal = ({ employee, departments, onClose, onUpdate }) => {
                 <option value="employee">Employee</option>
                 <option value="manager">Manager</option>
                 <option value="hr">HR</option>
-                <option value="admin">Admin</option>
               </select>
             </div>
             <div>
@@ -897,7 +895,6 @@ const CreateEmployeeModal = ({ departments, onClose, onCreate }) => {
                 <option value="employee">Employee</option>
                 <option value="manager">Manager</option>
                 <option value="hr">HR</option>
-                <option value="admin">Admin</option>
               </select>
             </div>
             <div>

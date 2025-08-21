@@ -3,7 +3,6 @@ const { query } = require("../config/database");
 const {
   authenticate,
   requireHRorAdmin,
-  requireAdmin,
   logAction,
 } = require("../middleware/auth");
 

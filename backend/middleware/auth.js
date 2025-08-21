@@ -139,10 +139,9 @@ const authorize = (...roles) => {
 };
 
 // Specific role middlewares
-const requireAdmin = authorize("admin");
 const requireHR = authorize("hr");
 const requireEmployee = authorize("employee");
-const requireHRorAdmin = authorize("hr", "admin");
+const requireHRorAdmin = authorize("hr");
 
 // Log user action
 const logAction = async (userId, action, details = {}, req) => {
@@ -169,7 +168,6 @@ module.exports = {
   revokeToken,
   authenticate,
   authorize,
-  requireAdmin,
   requireHR,
   requireEmployee,
   requireHRorAdmin,

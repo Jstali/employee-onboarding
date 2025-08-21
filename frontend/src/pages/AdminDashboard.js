@@ -30,9 +30,9 @@ const AdminDashboard = () => {
       setError("");
 
       const [statsRes, hrRes, activityRes] = await Promise.all([
-        api.get("/admin/statistics"),
-        api.get("/admin/hr-users"),
-        api.get("/admin/audit-logs?limit=10"),
+        api.get("/hr/statistics"),
+        api.get("/hr/employees"),
+        api.get("/hr/audit-logs?limit=10"),
       ]);
 
       setStatistics(statsRes.data);
@@ -48,7 +48,7 @@ const AdminDashboard = () => {
 
   const handleImportEmployees = async () => {
     try {
-      const response = await api.post("/admin/import-employees");
+      const response = await api.post("/hr/import-employees");
       alert(response.data.message);
       fetchDashboardData(); // Refresh statistics
     } catch (err) {

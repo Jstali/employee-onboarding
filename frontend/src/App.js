@@ -7,13 +7,15 @@ import {
 } from "react-router-dom";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import Login from "./pages/Login";
-import AdminDashboard from "./pages/AdminDashboard";
 import HRDashboard from "./pages/HRDashboard";
 import EmployeeDashboard from "./pages/EmployeeDashboard";
 import EmployeeForm from "./pages/EmployeeForm";
 import EmployeeFormsManager from "./pages/EmployeeFormsManager";
 import MasterEmployeeTable from "./pages/MasterEmployeeTable";
 import MyProfile from "./pages/MyProfile";
+import EmployeeAttendance from "./pages/EmployeeAttendance";
+import HRAttendanceDashboard from "./pages/HRAttendanceDashboard";
+import PasswordChange from "./pages/PasswordChange";
 import Layout from "./components/Layout";
 
 // Protected Route Component
@@ -53,7 +55,7 @@ const AppRoutes = () => {
       <Route
         path="/"
         element={
-          <ProtectedRoute allowedRoles={["admin", "hr", "employee"]}>
+          <ProtectedRoute allowedRoles={["hr", "employee"]}>
             <Layout />
           </ProtectedRoute>
         }
@@ -61,20 +63,14 @@ const AppRoutes = () => {
         <Route
           index
           element={
-            user?.role === "admin" ? (
-              <AdminDashboard />
-            ) : user?.role === "hr" ? (
-              <HRDashboard />
-            ) : (
-              <EmployeeDashboard />
-            )
+            user?.role === "hr" ? <HRDashboard /> : <EmployeeDashboard />
           }
         />
 
         <Route
           path="hr"
           element={
-            <ProtectedRoute allowedRoles={["hr", "admin"]}>
+            <ProtectedRoute allowedRoles={["hr"]}>
               <HRDashboard />
             </ProtectedRoute>
           }
@@ -83,8 +79,17 @@ const AppRoutes = () => {
         <Route
           path="hr/forms"
           element={
-            <ProtectedRoute allowedRoles={["hr", "admin"]}>
+            <ProtectedRoute allowedRoles={["hr"]}>
               <EmployeeFormsManager />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="hr/attendance"
+          element={
+            <ProtectedRoute allowedRoles={["hr"]}>
+              <HRAttendanceDashboard />
             </ProtectedRoute>
           }
         />
@@ -92,7 +97,7 @@ const AppRoutes = () => {
         <Route
           path="master"
           element={
-            <ProtectedRoute allowedRoles={["hr", "admin"]}>
+            <ProtectedRoute allowedRoles={["hr"]}>
               <MasterEmployeeTable />
             </ProtectedRoute>
           }
@@ -115,7 +120,26 @@ const AppRoutes = () => {
             </ProtectedRoute>
           }
         />
+
+        <Route
+          path="attendance"
+          element={
+            <ProtectedRoute allowedRoles={["employee"]}>
+              <EmployeeAttendance />
+            </ProtectedRoute>
+          }
+        />
       </Route>
+
+      {/* Password Change Route (for first login) */}
+      <Route
+        path="/change-password"
+        element={
+          <ProtectedRoute allowedRoles={["employee"]}>
+            <PasswordChange />
+          </ProtectedRoute>
+        }
+      />
 
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

@@ -57,12 +57,6 @@ const Layout = () => {
       roles: ["hr", "admin"],
     },
     {
-      name: "Employee Portal",
-      href: "/employee",
-      icon: UserCircleIcon,
-      roles: ["employee"],
-    },
-    {
       name: "Onboarding Form",
       href: "/form",
       icon: DocumentTextIcon,

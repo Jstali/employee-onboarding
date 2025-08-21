@@ -17,6 +17,9 @@ const HRDashboard = () => {
   const [managers, setManagers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showCreateForm, setShowCreateForm] = useState(false);
+  const [successMessage, setSuccessMessage] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
+  const [creatingEmployee, setCreatingEmployee] = useState(false);
   const [createFormData, setCreateFormData] = useState({
     name: "",
     email: "",
@@ -51,6 +54,8 @@ const HRDashboard = () => {
   const handleCreateEmployee = async (e) => {
     e.preventDefault();
     try {
+      setCreatingEmployee(true);
+      setErrorMessage(""); // Clear any previous error
       const response = await api.post("/hr/employees", createFormData);
       setEmployees([response.data.employee, ...employees]);
       setShowCreateForm(false);
@@ -60,15 +65,32 @@ const HRDashboard = () => {
         employeeType: "intern",
         managerId: "",
       });
-      alert(
+      setSuccessMessage(
         `Employee created successfully! Credentials sent to ${createFormData.email}`
       );
+      setTimeout(() => setSuccessMessage(""), 5000); // Clear message after 5 seconds
     } catch (err) {
-      alert(
+      setSuccessMessage(""); // Clear any previous success message
+      setErrorMessage(
         "Failed to create employee: " +
           (err.response?.data?.error || err.message)
       );
+      setTimeout(() => setErrorMessage(""), 5000); // Clear message after 5 seconds
+    } finally {
+      setCreatingEmployee(false);
     }
+  };
+
+  const closeCreateForm = () => {
+    setShowCreateForm(false);
+    setSuccessMessage("");
+    setErrorMessage("");
+    setCreateFormData({
+      name: "",
+      email: "",
+      employeeType: "intern",
+      managerId: "",
+    });
   };
 
   const handleStatusChange = async (employeeId, newStatus) => {
@@ -189,6 +211,26 @@ const HRDashboard = () => {
         </div>
       </div>
 
+      {/* Success Message */}
+      {successMessage && (
+        <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+          <div className="flex items-center">
+            <CheckCircleIcon className="h-5 w-5 text-green-400 mr-2" />
+            <p className="text-green-800 font-medium">{successMessage}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Error Message */}
+      {errorMessage && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="flex items-center">
+            <XCircleIcon className="h-5 w-5 text-red-400 mr-2" />
+            <p className="text-red-800 font-medium">{errorMessage}</p>
+          </div>
+        </div>
+      )}
+
       {/* Create Employee Modal */}
       {showCreateForm && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
@@ -266,13 +308,25 @@ const HRDashboard = () => {
                   </select>
                 </div>
                 <div className="flex gap-3">
-                  <button type="submit" className="btn-primary flex-1">
-                    Create Employee
+                  <button
+                    type="submit"
+                    disabled={creatingEmployee}
+                    className="btn-primary flex-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {creatingEmployee ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                        Creating...
+                      </>
+                    ) : (
+                      "Create Employee"
+                    )}
                   </button>
                   <button
                     type="button"
-                    onClick={() => setShowCreateForm(false)}
-                    className="btn-secondary flex-1"
+                    onClick={closeCreateForm}
+                    disabled={creatingEmployee}
+                    className="btn-secondary flex-1 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Cancel
                   </button>

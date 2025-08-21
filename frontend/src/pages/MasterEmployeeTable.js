@@ -131,8 +131,15 @@ const MasterEmployeeTable = () => {
 
   const handleCreateEmployee = async (employeeData) => {
     try {
-      console.log("Creating employee with data:", employeeData);
-      await api.post("/master", employeeData);
+      // Clean up empty strings for optional fields
+      const cleanData = {
+        ...employeeData,
+        managerId: employeeData.managerId || null,
+        joinDate: employeeData.joinDate || null,
+      };
+
+      console.log("Creating employee with data:", cleanData);
+      await api.post("/master", cleanData);
       alert("Employee created successfully!");
       setShowCreateModal(false);
       fetchEmployees();

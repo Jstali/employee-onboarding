@@ -150,11 +150,32 @@ router.get("/:id", async (req, res) => {
 // Add existing employee manually (Admin/HR only)
 router.post("/", async (req, res) => {
   try {
-    const { name, email, employeeType, role, department, joinDate, managerId } =
+    let { name, email, employeeType, role, department, joinDate, managerId } =
       req.body;
+
+    // Clean up empty strings and convert to null for optional fields
+    joinDate = joinDate || null;
+    managerId = managerId || null;
+
+    console.log("Received create employee request:", {
+      name,
+      email,
+      employeeType,
+      role,
+      department,
+      joinDate,
+      managerId,
+    });
 
     // Validate required fields
     if (!name || !email || !employeeType || !role || !department) {
+      console.log("Validation failed - missing fields:", {
+        hasName: !!name,
+        hasEmail: !!email,
+        hasEmployeeType: !!employeeType,
+        hasRole: !!role,
+        hasDepartment: !!department,
+      });
       return res.status(400).json({
         error: "Name, email, employee type, role, and department are required",
       });
@@ -182,8 +203,8 @@ router.post("/", async (req, res) => {
         employeeType,
         role,
         department,
-        joinDate,
-        managerId,
+        joinDate || null,
+        managerId || null, // Convert empty string to null
       ]
     );
 
@@ -205,7 +226,33 @@ router.post("/", async (req, res) => {
     });
   } catch (error) {
     console.error("Create master employee error:", error);
-    res.status(500).json({ error: "Failed to create employee" });
+    console.error("Error details:", {
+      message: error.message,
+      code: error.code,
+      detail: error.detail,
+      hint: error.hint,
+      where: error.where,
+    });
+
+    // Provide more specific error messages
+    if (error.code === "23505") {
+      return res
+        .status(400)
+        .json({ error: "Email already exists in the system" });
+    } else if (error.code === "23514") {
+      return res.status(400).json({
+        error:
+          "Invalid data provided. Please check employee type and role values",
+      });
+    } else if (error.code === "23503") {
+      return res.status(400).json({ error: "Invalid reference data provided" });
+    } else {
+      return res.status(500).json({
+        error: "Failed to create employee",
+        details: error.message,
+        code: error.code,
+      });
+    }
   }
 });
 
@@ -266,8 +313,8 @@ router.put("/:id", async (req, res) => {
         employeeType,
         role,
         department,
-        joinDate,
-        managerId,
+        joinDate || null,
+        managerId || null, // Convert empty string to null
         status,
         id,
       ]

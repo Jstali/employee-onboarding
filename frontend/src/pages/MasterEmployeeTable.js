@@ -131,11 +131,14 @@ const MasterEmployeeTable = () => {
 
   const handleCreateEmployee = async (employeeData) => {
     try {
+      console.log("Creating employee with data:", employeeData);
       await api.post("/master", employeeData);
       alert("Employee created successfully!");
       setShowCreateModal(false);
       fetchEmployees();
     } catch (err) {
+      console.error("Create employee error:", err);
+      console.error("Error response:", err.response?.data);
       alert(
         "Failed to create employee: " +
           (err.response?.data?.error || err.message)
@@ -740,6 +743,19 @@ const CreateEmployeeModal = ({ departments, onClose, onCreate }) => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    // Validate required fields
+    if (
+      !formData.name ||
+      !formData.email ||
+      !formData.employeeType ||
+      !formData.role ||
+      !formData.department
+    ) {
+      alert("Please fill in all required fields marked with *");
+      return;
+    }
+
     setSaving(true);
     try {
       await onCreate(formData);

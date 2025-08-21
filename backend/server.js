@@ -18,22 +18,30 @@ const PORT = process.env.PORT || 5022;
 // Connect to database
 connectDB();
 
-// Rate limiting - more lenient for authentication
+// Rate limiting - MUCH more lenient for authentication
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 20, // limit each IP to 20 login attempts per 15 minutes
+  windowMs: 2 * 60 * 1000, // 2 minutes (very short window)
+  max: 100, // limit each IP to 100 login attempts per 2 minutes (very lenient)
   message: {
-    error: "Too many login attempts from this IP, please try again later.",
-    retryAfter: "15 minutes",
+    error:
+      "Too many login attempts from this IP, please try again in 2 minutes.",
+    retryAfter: "2 minutes",
   },
   standardHeaders: true,
   legacyHeaders: false,
+  skipSuccessfulRequests: true, // Don't count successful logins
+  skipFailedRequests: false, // Count failed attempts
+  // Development mode: even more lenient
+  ...(process.env.NODE_ENV === "development" && {
+    windowMs: 1 * 60 * 1000, // 1 minute in development
+    max: 200, // 200 attempts per minute in development
+  }),
 });
 
 // General rate limiting - more lenient
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 200, // limit each IP to 200 requests per 15 minutes
+  max: 500, // limit each IP to 500 requests per 15 minutes (more lenient)
   message: {
     error: "Too many requests from this IP, please try again later.",
     retryAfter: "15 minutes",
@@ -80,16 +88,37 @@ app.get("/health", (req, res) => {
 app.get("/rate-limit-status", (req, res) => {
   res.status(200).json({
     authLimiter: {
-      windowMs: "15 minutes",
-      maxRequests: 20,
-      description: "Login attempts per 15 minutes",
+      windowMs: "2 minutes",
+      maxRequests: 100,
+      description: "Login attempts per 2 minutes",
     },
     generalLimiter: {
       windowMs: "15 minutes",
-      maxRequests: 200,
+      maxRequests: 500,
       description: "General requests per 15 minutes",
     },
   });
+});
+
+// Rate limit reset endpoint (for development/testing)
+app.post("/rate-limit-reset", (req, res) => {
+  try {
+    // Reset the rate limiters
+    authLimiter.resetKey(req.ip);
+    generalLimiter.resetKey(req.ip);
+
+    res.status(200).json({
+      message: "Rate limits reset successfully for your IP",
+      ip: req.ip,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error("Error resetting rate limits:", error);
+    res.status(500).json({
+      error: "Failed to reset rate limits",
+      message: error.message,
+    });
+  }
 });
 
 // 404 handler

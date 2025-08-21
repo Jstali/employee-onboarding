@@ -150,147 +150,19 @@ const EmployeeForm = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    console.log("Form submission started");
-    console.log("Form data:", formData);
-    console.log("User:", user);
-
-    setSaving(true);
     setError("");
     setSuccess("");
 
     try {
+      setSaving(true);
       console.log("Sending API request to /employee/onboarding-form");
       const response = await api.post("/employee/onboarding-form", formData);
-      console.log("API response:", response);
-      setSuccess(
-        `🎉 Congratulations! Your ${
-          user?.employee_type || "employee"
-        } onboarding form has been submitted successfully. Your information has been saved and will be reviewed by HR.`
-      );
-
-      // Clear form data after successful submission
-      setFormData({
-        personalInfo: {
-          firstName: "",
-          lastName: "",
-          dateOfBirth: "",
-          phone: "",
-          address: "",
-          emergencyContact: {
-            name: "",
-            relationship: "",
-            phone: "",
-          },
-        },
-        bankInfo: {
-          accountNumber: "",
-          bankName: "",
-          ifscCode: "",
-          branch: "",
-        },
-        aadharNumber: "",
-        panNumber: "",
-        passportNumber: "",
-        educationInfo: {
-          highestQualification: "",
-          institution: "",
-          yearOfCompletion: "",
-          percentage: "",
-        },
-        techCertificates: [],
-        photoUrl: "",
-        workExperience: {
-          yearsOfExperience: "",
-          previousCompany: "",
-          designation: "",
-          skills: [],
-        },
-        contractPeriod: {
-          startDate: "",
-          endDate: "",
-          terms: "",
-        },
-        joinDate: "",
-      });
-
-      // Auto-clear success message after 10 seconds
-      setTimeout(() => {
-        setSuccess("");
-      }, 10000);
-
-      // Scroll to top to show success message
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      console.log("Form submitted successfully:", response);
+      setSuccess("Form submitted successfully!");
     } catch (err) {
-      console.error("Form submission error:", err);
-      console.error("Error response:", err.response);
+      console.error("Form submission failed:", err);
       setError(
-        "Failed to submit form: " + (err.response?.data?.error || err.message)
-      );
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const testSubmission = async () => {
-    console.log("Testing form submission with minimal data");
-    const testData = {
-      personalInfo: {
-        firstName: "Test",
-        lastName: "User",
-        dateOfBirth: "1990-01-01",
-        phone: "1234567890",
-        address: "Test Address",
-        emergencyContact: {
-          name: "Emergency",
-          relationship: "Spouse",
-          phone: "0987654321",
-        },
-      },
-      bankInfo: {
-        accountNumber: "1234567890",
-        bankName: "Test Bank",
-        ifscCode: "TEST0001234",
-        branch: "Test Branch",
-      },
-      aadharNumber: "123456789012",
-      panNumber: "ABCDE1234F",
-      educationInfo: {
-        highestQualification: "Bachelor",
-        institution: "Test University",
-        yearOfCompletion: "2012",
-        percentage: "85",
-      },
-    };
-
-    // Add employee type specific fields
-    if (user?.employee_type === "fulltime") {
-      testData.joinDate = "2024-01-01";
-      testData.passportNumber = "A12345678";
-    } else if (user?.employee_type === "contract") {
-      testData.workExperience = {
-        yearsOfExperience: "2",
-        previousCompany: "Test Company",
-        designation: "Developer",
-        skills: ["JavaScript", "React"],
-      };
-      testData.contractPeriod = {
-        startDate: "2024-01-01",
-        endDate: "2024-12-31",
-        terms: "Test contract terms",
-      };
-    }
-
-    console.log("Test data:", testData);
-
-    try {
-      setSaving(true);
-      const response = await api.post("/employee/onboarding-form", testData);
-      console.log("Test submission successful:", response);
-      setSuccess("Test form submitted successfully!");
-    } catch (err) {
-      console.error("Test submission failed:", err);
-      setError(
-        "Test submission failed: " + (err.response?.data?.error || err.message)
+        "Form submission failed: " + (err.response?.data?.error || err.message)
       );
     } finally {
       setSaving(false);
@@ -990,24 +862,6 @@ const EmployeeForm = () => {
 
         {/* Submit Button */}
         <div className="flex justify-end space-x-4">
-          <button
-            type="button"
-            onClick={() => {
-              console.log("Test button clicked");
-              console.log("Current formData:", formData);
-              console.log("Current user:", user);
-            }}
-            className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600"
-          >
-            Debug Form
-          </button>
-          <button
-            type="button"
-            onClick={testSubmission}
-            className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-          >
-            Test Submit
-          </button>
           <button
             type="submit"
             disabled={saving}

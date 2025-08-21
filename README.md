@@ -1,329 +1,336 @@
-# Employee Onboarding Application
+# 🚀 Employee Onboarding Application
 
-A comprehensive full-stack employee onboarding solution with role-based access control, dynamic forms, and automated workflows.
+A comprehensive full-stack application for managing employee onboarding processes with role-based access control, dynamic forms, and master employee management.
 
-## 🚀 Features
+## ✨ Features
 
-### Roles & Permissions
+### 🔐 Authentication & Authorization
+- **Opaque Token Authentication** (not JWT)
+- **Role-Based Access Control** with three roles:
+  - **Admin**: Full system access, user management, audit logs
+  - **HR**: Employee management, onboarding approval, forms management
+  - **Employee**: Self-service onboarding, profile viewing
 
-- **Admin**: Full system access, HR user management, system monitoring
-- **HR**: Employee management, approvals, manager assignment, email notifications
-- **Employee**: Form completion, profile management, status tracking
+### 👥 Employee Management
+- **Dynamic Onboarding Forms** based on employee type (Intern, Contract, Full-time)
+- **Multi-step Form Process** with validation
+- **Document Upload Support** (photos, certificates)
+- **Manager Assignment** system
+- **Status Tracking** (Pending, Approved, Rejected)
 
-### Employee Types
+### 📊 Master Employee Table (NEW!)
+- **Comprehensive Employee Database** with all employee information
+- **Advanced Filtering** by type, role, department, status
+- **Search Functionality** across name and email
+- **Full CRUD Operations** for HR and Admin
+- **Bulk Import** of existing employees
+- **Department Management**
+- **Manager Hierarchy** tracking
 
-- **Intern**: Basic personal, bank, identity, and education information
-- **Contract**: All intern fields + work experience and contract period
-- **Full-time**: All intern fields + join date and passport number
+### 📧 Communication
+- **Automated Email Notifications** using Nodemailer
+- **Gmail Integration** with real credentials
+- **Employee Credential Delivery**
+- **Status Update Notifications**
 
-### Core Functionality
-
-- Opaque token-based authentication
-- Dynamic form generation based on employee type
-- Email notifications for employee credentials
-- Manager assignment system
-- Real-time form progress tracking
-- Comprehensive audit logging
-- Role-based dashboard interfaces
+### 🔍 Audit & Monitoring
+- **Comprehensive Audit Logging** for all actions
+- **User Activity Tracking**
+- **Security Event Monitoring**
+- **Admin Dashboard** with system statistics
 
 ## 🛠️ Technology Stack
 
 ### Backend
-
-- **Node.js** with Express.js
-- **PostgreSQL** database
-- **Opaque token** authentication
-- **Nodemailer** for email services
+- **Node.js** with Express.js framework
+- **PostgreSQL** database with JSONB support
 - **Bcrypt.js** for password hashing
-- **Rate limiting** and security middleware
+- **Nodemailer** for email services
+- **Custom authentication middleware**
 
 ### Frontend
-
-- **React.js** with JavaScript
-- **Tailwind CSS** for styling
-- **React Router DOM** for routing
+- **React.js** with modern hooks
+- **Tailwind CSS** for responsive design
+- **React Router** for navigation
 - **Axios** for API communication
-- **Heroicons** for UI icons
-- **Responsive design** for all devices
+- **Heroicons** for beautiful icons
 
-## 📋 Prerequisites
+## 🗄️ Database Schema
 
-- Node.js (v16 or higher)
-- PostgreSQL (v12 or higher)
-- npm or yarn package manager
+### Core Tables
+- `users` - User accounts and authentication
+- `employee_details` - Onboarding form data
+- `audit_logs` - System activity tracking
+- `master_employees` - **NEW!** Comprehensive employee database
 
-## 🚀 Installation
+### Master Employees Table Structure
+```sql
+CREATE TABLE master_employees (
+  id SERIAL PRIMARY KEY,
+  user_id INT REFERENCES users(id) ON DELETE SET NULL,
+  name VARCHAR(100) NOT NULL,
+  email VARCHAR(100) UNIQUE NOT NULL,
+  employee_type VARCHAR(20) CHECK (employee_type IN ('intern','contract','fulltime')),
+  role VARCHAR(20) CHECK (role IN ('employee','manager','hr','admin')),
+  status VARCHAR(20) DEFAULT 'active',
+  department VARCHAR(50),
+  join_date DATE,
+  manager_id INT REFERENCES master_employees(id),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
 
-### 1. Clone the Repository
+## 🚀 Quick Start
 
+### Prerequisites
+- Node.js 16+ and npm
+- PostgreSQL 12+
+- Gmail account for email functionality
+
+### 1. Clone Repository
 ```bash
-git clone <repository-url>
+git clone https://github.com/Jstali/employee-onboarding.git
 cd employee-onboarding
 ```
 
-### 2. Database Setup
+### 2. Backend Setup
+```bash
+cd backend
+npm install
 
-1. Create a PostgreSQL database named `lastdb`
-2. Update the database connection in `backend/config.env`:
+# Configure environment variables
+cp config.env.example config.env
+# Edit config.env with your database and email credentials
 
+# Start backend server
+npm start
+# Server runs on http://localhost:5022
+```
+
+### 3. Frontend Setup
+```bash
+cd frontend
+npm install
+
+# Configure environment variables
+cp .env.example .env
+# Edit .env with your API URL
+
+# Start frontend development server
+npm start
+# Frontend runs on http://localhost:5180
+```
+
+### 4. Database Setup
+```bash
+# The application will automatically create tables on first run
+# Ensure PostgreSQL is running and accessible
+```
+
+## 🔧 Configuration
+
+### Backend Environment Variables (`backend/config.env`)
 ```env
+PORT=5022
+FRONTEND_URL=http://localhost:5180
 DB_HOST=localhost
 DB_PORT=5434
 DB_NAME=lastdb
 DB_USER=postgres
 DB_PASSWORD=Stali
-```
-
-### 3. Backend Setup
-
-```bash
-cd backend
-npm install
-```
-
-Update `config.env` with your email settings:
-
-```env
-EMAIL_HOST=smtp.gmail.com
-EMAIL_PORT=587
 EMAIL_USER=your-email@gmail.com
 EMAIL_PASS=your-app-password
 ```
 
-### 4. Frontend Setup
-
-```bash
-cd ../frontend
-npm install
-```
-
-### 5. Environment Variables
-
-Create `.env` file in frontend directory:
-
+### Frontend Environment Variables (`frontend/.env`)
 ```env
-REACT_APP_API_URL=http://localhost:5000/api
+PORT=5180
+REACT_APP_API_URL=http://localhost:5022/api
 ```
 
-## 🏃‍♂️ Running the Application
+## 📱 User Interface
 
-### Start Backend
+### Admin Dashboard
+- **System Statistics** overview
+- **User Management** interface
+- **Audit Logs** viewer
+- **Employee Import** functionality
+- **Master Employee Table** access
 
-```bash
-cd backend
-npm run dev
-```
+### HR Dashboard
+- **Employee Creation** and management
+- **Onboarding Approval** workflow
+- **Forms Management** (view, edit, delete)
+- **Manager Assignment** system
+- **Master Employee Table** access
 
-Backend will run on `http://localhost:5000`
+### Employee Portal
+- **Dynamic Onboarding Forms**
+- **Profile Management**
+- **Status Tracking**
+- **Document Upload**
 
-### Start Frontend
-
-```bash
-cd frontend
-npm start
-```
-
-Frontend will run on `http://localhost:3000`
-
-## 🔐 Default Credentials
-
-### Admin Account
-
-- **Email**: admin@company.com
-- **Password**: admin123
-
-### HR & Employee Accounts
-
-- Create via Admin Panel (HR users)
-- HR creates employee accounts with auto-generated passwords
-
-## 📚 API Documentation
-
-### Backend Routes
-
-```
-/api/auth          - Authentication (login, logout, profile)
-/api/admin         - Admin operations (HR management, statistics)
-/api/hr            - HR operations (employee management)
-/api/employee      - Employee operations (form submission)
-```
-
-### Frontend Pages
-
-- **Login**: Authentication for all users
-- **Admin Dashboard**: HR user management, system statistics
-- **HR Dashboard**: Employee creation, approval, management
-- **Employee Dashboard**: Profile view, form progress
-- **Onboarding Form**: Dynamic form based on employee type
-
-## 🗄️ Database Schema
-
-### Users Table
-
-- Basic user information (id, name, email, password_hash)
-- Role-based access control (admin, hr, employee)
-- Employee type classification (intern, contract, fulltime)
-- Status tracking (pending, approved, rejected)
-- Manager relationships
-
-### Employee Details Table
-
-- Comprehensive employee information
-- JSONB fields for flexible data storage
-- Type-specific required fields
-
-### Audit Logs Table
-
-- Complete action tracking
-- User activity monitoring
-- Security and compliance support
-
-## 📧 Email Configuration
-
-### Email Service
-
-Configure SMTP settings in `backend/config.env`:
-
-```env
-EMAIL_HOST=smtp.gmail.com
-EMAIL_PORT=587
-EMAIL_USER=your-email@gmail.com
-EMAIL_PASS=your-app-password
-```
-
-## 🔒 Security Features
-
-### Security Settings
-
-- Rate limiting: 100 requests per 15 minutes
-- Token expiry: 24 hours
-- Password hashing with bcrypt
-- CORS protection
-- Input validation and sanitization
+### Master Employee Table (NEW!)
+- **Advanced Filtering** and search
+- **Bulk Operations** support
+- **Department Management**
+- **Manager Hierarchy** visualization
+- **Export Capabilities**
 
 ## 🔌 API Endpoints
 
 ### Authentication
-
 - `POST /api/auth/login` - User login
 - `POST /api/auth/logout` - User logout
 - `GET /api/auth/profile` - Get user profile
-- `POST /api/auth/change-password` - Change password
 
-### Admin Operations
-
+### Admin Routes
 - `GET /api/admin/statistics` - System statistics
+- `GET /api/admin/users` - User management
 - `GET /api/admin/audit-logs` - Audit logs
-- `POST /api/admin/hr-users` - Create HR user
-- `GET /api/admin/hr-users` - List HR users
-- `PUT /api/admin/hr-users/:id` - Update HR user
-- `DELETE /api/admin/hr-users/:id` - Delete HR user
+- `POST /api/admin/import-employees` - **NEW!** Import employees
 
-### HR Operations
-
+### HR Routes
+- `GET /api/hr/employees` - Employee list
 - `POST /api/hr/employees` - Create employee
-- `GET /api/hr/employees` - List employees
-- `PUT /api/hr/employees/:id` - Update employee
-- `PATCH /api/hr/employees/:id/status` - Approve/reject employee
+- `PATCH /api/hr/employees/:id/status` - Update status
 - `PATCH /api/hr/employees/:id/manager` - Assign manager
-- `GET /api/hr/managers` - List available managers
+- `GET /api/hr/employee-forms` - Forms management
+- `GET /api/hr/managers` - Available managers
 
-### Employee Operations
+### Master Employee Routes (NEW!)
+- `GET /api/master` - List all employees with filters
+- `GET /api/master/:id` - Get employee profile
+- `POST /api/master` - Add new employee
+- `PUT /api/master/:id` - Update employee
+- `DELETE /api/master/:id` - Deactivate employee
+- `GET /api/master/departments/list` - Get departments
+- `GET /api/master/profile` - Get own profile (employees)
 
-- `POST /api/employee/onboarding-form` - Submit form
-- `GET /api/employee/onboarding-form` - Get form data
-- `PATCH /api/employee/onboarding-form` - Update form
-- `GET /api/employee/form-status` - Check completion status
-- `GET /api/employee/profile` - Get profile information
+### Employee Routes
+- `GET /api/employee/form` - Get onboarding form
+- `POST /api/employee/form` - Submit onboarding form
+- `PATCH /api/employee/form` - Update onboarding form
 
-## 🎨 UI/UX Features
+## 🔒 Security Features
 
-### Design System
+- **Opaque Token Authentication**
+- **Role-Based Access Control**
+- **Password Hashing** with bcrypt
+- **Input Validation** and sanitization
+- **Rate Limiting** on API endpoints
+- **Audit Logging** for all actions
+- **CORS Protection**
 
-- **Colors**: Primary blue theme with semantic status colors
-- **Typography**: Inter font family for modern readability
-- **Components**: Reusable UI components with consistent styling
-- **Status Indicators**: Visual feedback for all system states
+## 📧 Email Integration
 
-### Status Indicators
+### Gmail Setup
+1. Enable 2-Factor Authentication
+2. Generate App Password
+3. Use App Password in `EMAIL_PASS`
 
-- **Pending**: Yellow warning indicators
-- **Approved**: Green success indicators
-- **Rejected**: Red error indicators
-- **Progress Bars**: Visual completion tracking
+### Email Templates
+- **Welcome Emails** with credentials
+- **Status Update Notifications**
+- **Manager Assignment** notifications
+- **System Alerts**
+
+## 🚀 Deployment
+
+### Production Considerations
+- Use environment variables for all secrets
+- Set up proper CORS origins
+- Configure production database
+- Set up SSL/TLS certificates
+- Configure production email service
+- Set up monitoring and logging
+
+### Docker Support (Coming Soon)
+- Multi-stage builds
+- Environment-specific configurations
+- Health checks
+- Volume management
 
 ## 🧪 Testing
 
 ### Backend Testing
-
 ```bash
 cd backend
 npm test
 ```
 
 ### Frontend Testing
-
 ```bash
 cd frontend
 npm test
 ```
 
-## 🚀 Production Deployment
-
-### Production Build
-
+### API Testing
 ```bash
-# Frontend
-cd frontend
-npm run build
-
-# Backend
-cd backend
-npm start
+# Use tools like Postman or curl
+curl -X POST http://localhost:5022/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@company.com","password":"admin123"}'
 ```
 
-### Environment Variables
+## 📊 Monitoring & Analytics
 
-Update production environment variables:
+- **Audit Logs** for compliance
+- **User Activity** tracking
+- **Performance Metrics**
+- **Error Logging** and alerting
+- **Database Query** optimization
 
-- Database connection strings
-- Email service credentials
-- API URLs and endpoints
-- Security settings
+## 🔄 Workflow
 
-## 🐛 Troubleshooting
+### Employee Onboarding Process
+1. **HR Creates** employee account
+2. **Employee Receives** credentials via email
+3. **Employee Completes** onboarding form
+4. **HR Reviews** and approves/rejects
+5. **System Updates** master employee table
+6. **Employee Gains** access to system
 
-### Common Issues
-
-1. **Database Connection Failed**
-
-   - Verify PostgreSQL is running
-   - Check database credentials in `config.env`
-   - Ensure database `lastdb` exists
-
-2. **Email Not Sending**
-
-   - Verify SMTP credentials
-   - Check email service configuration
-   - Ensure network connectivity
-
-3. **Frontend API Errors**
-
-   - Verify backend is running on port 5000
-   - Check CORS configuration
-   - Validate API endpoint URLs
+### Master Employee Management
+1. **HR/Admin Views** master employee table
+2. **Filters and Searches** for specific employees
+3. **Updates Employee** information
+4. **Assigns Managers** and departments
+5. **Tracks Changes** in audit logs
 
 ## 🤝 Contributing
 
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests if applicable
+5. Submit a pull request
+
+## 📝 License
+
+This project is licensed under the MIT License.
+
+## 🆘 Support
+
 For support and questions:
+- Create an issue on GitHub
+- Check the documentation
+- Review the code examples
 
-- Create an issue in the repository
-- Contact the development team
+## 🔮 Future Enhancements
 
-## 📄 License
-
-This project is licensed under the ISC License.
+- **Mobile App** support
+- **Advanced Reporting** and analytics
+- **Integration** with HR systems
+- **Workflow Automation**
+- **Multi-language** support
+- **Advanced Search** and filtering
+- **Bulk Operations** for data management
+- **API Rate Limiting** improvements
+- **Real-time Notifications**
+- **Advanced Security** features
 
 ---
 
-**Built with ❤️ for modern employee onboarding workflows**
+**Built with ❤️ using modern web technologies**

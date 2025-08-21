@@ -12,6 +12,8 @@ import HRDashboard from "./pages/HRDashboard";
 import EmployeeDashboard from "./pages/EmployeeDashboard";
 import EmployeeForm from "./pages/EmployeeForm";
 import EmployeeFormsManager from "./pages/EmployeeFormsManager";
+import MasterEmployeeTable from "./pages/MasterEmployeeTable";
+import MyProfile from "./pages/MyProfile";
 import Layout from "./components/Layout";
 
 // Protected Route Component
@@ -97,6 +99,15 @@ const AppRoutes = () => {
         />
 
         <Route
+          path="master"
+          element={
+            <ProtectedRoute allowedRoles={["hr", "admin"]}>
+              <MasterEmployeeTable />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
           path="employee"
           element={
             <ProtectedRoute allowedRoles={["employee"]}>
@@ -110,6 +121,15 @@ const AppRoutes = () => {
           element={
             <ProtectedRoute allowedRoles={["employee"]}>
               <EmployeeForm />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="profile"
+          element={
+            <ProtectedRoute allowedRoles={["employee"]}>
+              <MyProfile />
             </ProtectedRoute>
           }
         />

@@ -321,22 +321,20 @@ router.put("/employees/:id", async (req, res) => {
   }
 });
 
-// Approve/Reject employee
+// Update employee status (approve/reject)
 router.patch("/employees/:id/status", async (req, res) => {
   try {
     const { id } = req.params;
-    const { status, reason } = req.body;
+    const { status } = req.body;
 
-    if (!["approved", "rejected"].includes(status)) {
-      return res
-        .status(400)
-        .json({ error: "Status must be either approved or rejected" });
+    if (!["pending", "approved", "rejected"].includes(status)) {
+      return res.status(400).json({ error: "Invalid status" });
     }
 
     // Check if employee exists
     const employeeResult = await query(
-      "SELECT id, name, email, status FROM users WHERE id = $1 AND role = $2",
-      [id, "employee"]
+      "SELECT id, name, email, employee_type FROM users WHERE id = $1 AND role = 'employee'",
+      [id]
     );
 
     if (employeeResult.rows.length === 0) {
@@ -345,46 +343,45 @@ router.patch("/employees/:id/status", async (req, res) => {
 
     const employee = employeeResult.rows[0];
 
-    if (employee.status === status) {
-      return res.status(400).json({ error: `Employee is already ${status}` });
-    }
-
     // Update status
-    await query(
-      "UPDATE users SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
-      [status, id]
-    );
+    await query("UPDATE users SET status = $1 WHERE id = $2", [status, id]);
 
-    // Send notification email
-    try {
-      const subject = `Employee Account ${
-        status.charAt(0).toUpperCase() + status.slice(1)
-      }`;
-      const message = `Dear ${
-        employee.name
-      },\n\nYour employee account has been ${status}. ${
-        reason ? `Reason: ${reason}` : ""
-      }\n\nPlease contact HR if you have any questions.`;
+    // If approved, add to master_employees table
+    if (status === "approved") {
+      const masterEmployeeExists = await query(
+        "SELECT id FROM master_employees WHERE user_id = $1",
+        [id]
+      );
 
-      await sendNotificationEmail(employee.email, subject, message);
-    } catch (emailError) {
-      console.error("Failed to send notification email:", emailError);
+      if (masterEmployeeExists.rows.length === 0) {
+        await query(
+          `INSERT INTO master_employees (
+            user_id, name, email, employee_type, role, status, department, join_date
+          ) VALUES ($1, $2, $3, $4, 'employee', 'active', 'General', $5)`,
+          [
+            id,
+            employee.name,
+            employee.email,
+            employee.employee_type,
+            new Date().toISOString().split("T")[0],
+          ]
+        );
+      }
     }
 
     // Log action
     await logAction(
       req.user.id,
-      "employee_status_changed",
+      "employee_status_updated",
       {
         employee_id: id,
-        old_status: employee.status,
+        employee_email: employee.email,
         new_status: status,
-        reason,
       },
       req
     );
 
-    res.json({ message: `Employee ${status} successfully` });
+    res.json({ message: `Employee status updated to ${status}` });
   } catch (error) {
     console.error("Update employee status error:", error);
     res.status(500).json({ error: "Failed to update employee status" });
@@ -397,46 +394,50 @@ router.patch("/employees/:id/manager", async (req, res) => {
     const { id } = req.params;
     const { managerId } = req.body;
 
-    if (!managerId) {
-      return res.status(400).json({ error: "Manager ID is required" });
-    }
-
     // Check if employee exists
-    const employeeExists = await query(
-      "SELECT id FROM users WHERE id = $1 AND role = $2",
-      [id, "employee"]
+    const employeeResult = await query(
+      "SELECT id, name, email FROM users WHERE id = $1 AND role = 'employee'",
+      [id]
     );
 
-    if (employeeExists.rows.length === 0) {
+    if (employeeResult.rows.length === 0) {
       return res.status(404).json({ error: "Employee not found" });
     }
 
-    // Check if manager exists and is HR or Admin
-    const managerExists = await query(
-      "SELECT id, name FROM users WHERE id = $1 AND role IN ($2, $3)",
-      [managerId, "hr", "admin"]
-    );
+    // Check if manager exists and is valid
+    if (managerId) {
+      const managerResult = await query(
+        "SELECT id, name, role FROM users WHERE id = $1 AND role IN ('hr', 'admin', 'manager')",
+        [managerId]
+      );
 
-    if (managerExists.rows.length === 0) {
-      return res
-        .status(400)
-        .json({ error: "Manager not found or not approved" });
+      if (managerResult.rows.length === 0) {
+        return res.status(400).json({ error: "Invalid manager selected" });
+      }
     }
 
     // Update manager
-    await query(
-      "UPDATE users SET manager_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
-      [managerId, id]
-    );
+    await query("UPDATE users SET manager_id = $1 WHERE id = $2", [
+      managerId || null,
+      id,
+    ]);
+
+    // Update master_employees table if exists
+    if (managerId) {
+      await query(
+        "UPDATE master_employees SET manager_id = $1 WHERE user_id = $2",
+        [managerId, id]
+      );
+    }
 
     // Log action
     await logAction(
       req.user.id,
-      "manager_assigned",
+      "employee_manager_assigned",
       {
         employee_id: id,
+        employee_email: employeeResult.rows[0].email,
         manager_id: managerId,
-        manager_name: managerExists.rows[0].name,
       },
       req
     );
@@ -448,15 +449,11 @@ router.patch("/employees/:id/manager", async (req, res) => {
   }
 });
 
-// Get managers (approved employees or HR users)
+// Get available managers
 router.get("/managers", async (req, res) => {
   try {
     const managersResult = await query(
-      `SELECT id, name, email, role, employee_type
-       FROM users 
-       WHERE (role = 'hr' OR (role = 'employee' AND status = 'approved'))
-       ORDER BY name`,
-      []
+      "SELECT id, name, email, role FROM users WHERE role IN ('hr', 'admin') AND status = 'approved' ORDER BY name"
     );
 
     res.json({ managers: managersResult.rows });
@@ -552,8 +549,9 @@ router.delete("/employees/:id", async (req, res) => {
 
     // Check if employee is already approved (prevent deletion of approved employees)
     if (employee.status === "approved") {
-      return res.status(400).json({ 
-        error: "Cannot delete approved employees. Please contact admin for assistance." 
+      return res.status(400).json({
+        error:
+          "Cannot delete approved employees. Please contact admin for assistance.",
       });
     }
 
@@ -575,13 +573,13 @@ router.delete("/employees/:id", async (req, res) => {
       req
     );
 
-    res.json({ 
+    res.json({
       message: "Employee deleted successfully",
       deletedEmployee: {
         id: employee.id,
         name: employee.name,
-        email: employee.email
-      }
+        email: employee.email,
+      },
     });
   } catch (error) {
     console.error("Delete employee error:", error);

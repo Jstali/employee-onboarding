@@ -309,69 +309,114 @@ router.patch("/hr-users/:id/password", async (req, res) => {
   }
 });
 
-// Get system statistics
-router.get("/statistics", async (req, res) => {
+// Import existing users into master_employees table
+router.post("/import-employees", async (req, res) => {
   try {
-    // Get user counts by role and status
-    const userStats = await query(`
-      SELECT 
-        role,
-        status,
-        COUNT(*) as count
-      FROM users 
-      GROUP BY role, status
-      ORDER BY role, status
-    `);
-
-    // Get employee counts by type
-    const employeeTypeStats = await query(`
-      SELECT 
-        employee_type,
-        COUNT(*) as count
-      FROM users 
-      WHERE role = 'employee'
-      GROUP BY employee_type
-      ORDER BY employee_type
-    `);
-
-    // Get recent activity (last 7 days)
-    const recentActivity = await query(`
-      SELECT 
-        al.action,
-        al.created_at,
-        u.name as user_name,
-        u.role as user_role
-      FROM audit_logs al
-      JOIN users u ON al.user_id = u.id
-      WHERE al.created_at >= CURRENT_DATE - INTERVAL '7 days'
-      ORDER BY al.created_at DESC
-      LIMIT 20
-    `);
-
-    // Get total counts
-    const totalUsers = await query("SELECT COUNT(*) FROM users");
-    const totalEmployees = await query(
-      "SELECT COUNT(*) FROM users WHERE role = 'employee'"
+    // Get all users that are not in master_employees
+    const usersToImport = await query(
+      `SELECT u.id, u.name, u.email, u.employee_type, u.role, u.status, u.created_at
+       FROM users u
+       LEFT JOIN master_employees me ON u.id = me.user_id
+       WHERE me.id IS NULL AND u.role != 'admin'
+       ORDER BY u.created_at`
     );
-    const totalHR = await query("SELECT COUNT(*) FROM users WHERE role = 'hr'");
-    const pendingApprovals = await query(
-      "SELECT COUNT(*) FROM users WHERE role = 'employee' AND status = 'pending'"
+
+    if (usersToImport.rows.length === 0) {
+      return res.json({ message: "No users to import", imported: 0 });
+    }
+
+    let importedCount = 0;
+    for (const user of usersToImport.rows) {
+      try {
+        await query(
+          `INSERT INTO master_employees (
+            user_id, name, email, employee_type, role, status, department, join_date
+          ) VALUES ($1, $2, $3, $4, $5, $6, 'General', $7)`,
+          [
+            user.id,
+            user.name,
+            user.email,
+            user.employee_type || "fulltime",
+            user.role,
+            user.status === "approved" ? "active" : "pending",
+            user.created_at
+              ? new Date(user.created_at).toISOString().split("T")[0]
+              : new Date().toISOString().split("T")[0],
+          ]
+        );
+        importedCount++;
+      } catch (insertError) {
+        console.error(`Failed to import user ${user.email}:`, insertError);
+      }
+    }
+
+    // Log action
+    await logAction(
+      req.user.id,
+      "employees_imported",
+      {
+        imported_count: importedCount,
+        total_users: usersToImport.rows.length,
+      },
+      req
     );
 
     res.json({
-      userStatistics: userStats.rows,
-      employeeTypeStatistics: employeeTypeStats.rows,
-      recentActivity: recentActivity.rows,
+      message: `Successfully imported ${importedCount} employees`,
+      imported: importedCount,
+      total: usersToImport.rows.length,
+    });
+  } catch (error) {
+    console.error("Import employees error:", error);
+    res.status(500).json({ error: "Failed to import employees" });
+  }
+});
+
+// Get system statistics including master_employees count
+router.get("/statistics", async (req, res) => {
+  try {
+    const [
+      usersCount,
+      hrUsersCount,
+      employeeUsersCount,
+      pendingUsersCount,
+      approvedUsersCount,
+      rejectedUsersCount,
+      masterEmployeesCount,
+      auditLogsCount,
+    ] = await Promise.all([
+      query("SELECT COUNT(*) FROM users"),
+      query("SELECT COUNT(*) FROM users WHERE role = 'hr'"),
+      query("SELECT COUNT(*) FROM users WHERE role = 'employee'"),
+      query("SELECT COUNT(*) FROM users WHERE status = 'pending'"),
+      query("SELECT COUNT(*) FROM users WHERE status = 'approved'"),
+      query("SELECT COUNT(*) FROM users WHERE status = 'rejected'"),
+      query("SELECT COUNT(*) FROM master_employees"),
+      query("SELECT COUNT(*) FROM audit_logs"),
+    ]);
+
+    const pendingImportCount = await query(
+      `SELECT COUNT(*) FROM users u
+       LEFT JOIN master_employees me ON u.id = me.user_id
+       WHERE me.id IS NULL AND u.role != 'admin'`
+    );
+
+    res.json({
       totals: {
-        users: parseInt(totalUsers.rows[0].count),
-        employees: parseInt(totalEmployees.rows[0].count),
-        hrUsers: parseInt(totalHR.rows[0].count),
-        pendingApprovals: parseInt(pendingApprovals.rows[0].count),
+        users: parseInt(usersCount.rows[0].count),
+        hrUsers: parseInt(hrUsersCount.rows[0].count),
+        employeeUsers: parseInt(employeeUsersCount.rows[0].count),
+        pendingUsers: parseInt(pendingUsersCount.rows[0].count),
+        approvedUsers: parseInt(approvedUsersCount.rows[0].count),
+        rejectedUsers: parseInt(rejectedUsersCount.rows[0].count),
+        masterEmployees: parseInt(masterEmployeesCount.rows[0].count),
+        pendingImport: parseInt(pendingImportCount.rows[0].count),
+        auditLogs: parseInt(auditLogsCount.rows[0].count),
       },
     });
   } catch (error) {
     console.error("Get statistics error:", error);
-    res.status(500).json({ error: "Failed to get system statistics" });
+    res.status(500).json({ error: "Failed to get statistics" });
   }
 });
 

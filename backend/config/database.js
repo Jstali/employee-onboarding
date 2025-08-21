@@ -139,6 +139,66 @@ const createTables = async (client) => {
       );
     }
 
+    // Create master_employees table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS master_employees (
+        id SERIAL PRIMARY KEY,
+        user_id INT REFERENCES users(id) ON DELETE SET NULL,
+        name VARCHAR(100) NOT NULL,
+        email VARCHAR(100) UNIQUE NOT NULL,
+        employee_type VARCHAR(20) CHECK (employee_type IN ('intern','contract','fulltime')),
+        role VARCHAR(20) CHECK (role IN ('employee','manager','hr','admin')),
+        status VARCHAR(20) DEFAULT 'active',
+        department VARCHAR(50),
+        join_date DATE,
+        manager_id INT REFERENCES master_employees(id),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Create index for better performance
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_master_employees_email ON master_employees(email)
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_master_employees_user_id ON master_employees(user_id)
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_master_employees_status ON master_employees(status)
+    `);
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_master_employees_department ON master_employees(department)
+    `);
+
+    // Insert default admin into master_employees if not exists
+    const adminExistsMaster = await client.query(
+      "SELECT id FROM master_employees WHERE email = $1",
+      ["admin@company.com"]
+    );
+
+    if (adminExistsMaster.rows.length === 0) {
+      await client.query(`
+        INSERT INTO master_employees (user_id, name, email, employee_type, role, status, department, join_date)
+        SELECT id, name, email, 'fulltime', role, status, 'IT', created_at::date
+        FROM users WHERE email = 'admin@company.com'
+      `);
+    }
+
+    // Insert default HR into master_employees if not exists
+    const hrExistsMaster = await client.query(
+      "SELECT id FROM master_employees WHERE email = $1",
+      ["hr@company.com"]
+    );
+
+    if (hrExistsMaster.rows.length === 0) {
+      await client.query(`
+        INSERT INTO master_employees (user_id, name, email, employee_type, role, status, department, join_date)
+        SELECT id, name, email, 'fulltime', role, status, 'HR', created_at::date
+        FROM users WHERE email = 'hr@company.com'
+      `);
+    }
+
     console.log("📋 Database tables created successfully");
   } catch (error) {
     console.error("❌ Error creating tables:", error);

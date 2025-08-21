@@ -28,7 +28,7 @@ const AdminDashboard = () => {
     try {
       setLoading(true);
       setError("");
-      
+
       const [statsRes, hrRes, activityRes] = await Promise.all([
         api.get("/admin/statistics"),
         api.get("/admin/hr-users"),
@@ -43,6 +43,19 @@ const AdminDashboard = () => {
       setError("Failed to fetch dashboard data");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleImportEmployees = async () => {
+    try {
+      const response = await api.post("/admin/import-employees");
+      alert(response.data.message);
+      fetchDashboardData(); // Refresh statistics
+    } catch (err) {
+      alert(
+        "Failed to import employees: " +
+          (err.response?.data?.error || err.message)
+      );
     }
   };
 
@@ -179,6 +192,47 @@ const AdminDashboard = () => {
           </div>
         </div>
       )}
+
+      {/* Import Employees Section */}
+      <div className="bg-white shadow rounded-lg p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-medium text-gray-900">
+            Import Existing Employees
+          </h2>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="bg-blue-50 p-4 rounded-lg">
+            <h3 className="font-medium text-blue-900">Users Table</h3>
+            <p className="text-blue-700 text-sm">Total users in system</p>
+            <p className="text-2xl font-bold text-blue-900">
+              {statistics?.totals.users || 0}
+            </p>
+          </div>
+          <div className="bg-green-50 p-4 rounded-lg">
+            <h3 className="font-medium text-green-900">Master Employees</h3>
+            <p className="text-green-700 text-sm">Employees in master table</p>
+            <p className="text-2xl font-bold text-green-900">
+              {statistics?.totals.masterEmployees || 0}
+            </p>
+          </div>
+          <div className="bg-yellow-50 p-4 rounded-lg">
+            <h3 className="font-medium text-yellow-900">Pending Import</h3>
+            <p className="text-yellow-700 text-sm">Users not in master table</p>
+            <p className="text-2xl font-bold text-yellow-900">
+              {statistics?.totals.pendingImport || 0}
+            </p>
+          </div>
+        </div>
+        <div className="mt-4">
+          <button
+            onClick={handleImportEmployees}
+            className="btn-primary"
+            disabled={statistics?.totals.pendingImport === 0}
+          >
+            Import Pending Employees
+          </button>
+        </div>
+      </div>
 
       {/* HR Users Section */}
       <div className="bg-white shadow rounded-lg">

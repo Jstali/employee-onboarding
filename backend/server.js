@@ -9,6 +9,7 @@ const authRoutes = require("./routes/auth");
 const adminRoutes = require("./routes/admin");
 const hrRoutes = require("./routes/hr");
 const employeeRoutes = require("./routes/employee");
+const masterRoutes = require("./routes/master");
 const { connectDB } = require("./config/database");
 
 const app = express();
@@ -44,6 +45,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/hr", hrRoutes);
 app.use("/api/employee", employeeRoutes);
+app.use("/api/master", masterRoutes);
 
 // Health check endpoint
 app.get("/health", (req, res) => {

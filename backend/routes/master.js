@@ -11,10 +11,9 @@ const router = express.Router();
 
 // Apply authentication to all master routes
 router.use(authenticate);
-router.use(requireHRorAdmin);
 
-// Get all employees with filters
-router.get("/", async (req, res) => {
+// Get all employees with filters (HR/Admin only)
+router.get("/", requireHRorAdmin, async (req, res) => {
   try {
     const {
       page = 1,
@@ -108,8 +107,59 @@ router.get("/", async (req, res) => {
   }
 });
 
-// Get single employee profile
-router.get("/:id", async (req, res) => {
+// Get employee's own profile (accessible to all authenticated users)
+router.get("/profile", async (req, res) => {
+  try {
+    const profileResult = await query(
+      `SELECT 
+        me.id,
+        me.user_id,
+        me.name,
+        me.email,
+        me.employee_type,
+        me.role,
+        me.status,
+        me.department,
+        me.join_date,
+        me.manager_id,
+        me.created_at,
+        me.updated_at,
+        manager.name as manager_name
+      FROM master_employees me
+      LEFT JOIN master_employees manager ON me.manager_id = manager.id
+      WHERE me.user_id = $1`,
+      [req.user.id]
+    );
+
+    if (profileResult.rows.length === 0) {
+      return res.json({ profile: null });
+    }
+
+    res.json({ profile: profileResult.rows[0] });
+  } catch (error) {
+    console.error("Get profile error:", error);
+    res.status(500).json({ error: "Failed to get profile" });
+  }
+});
+
+// Get departments for filter dropdown (HR/Admin only)
+router.get("/departments/list", requireHRorAdmin, async (req, res) => {
+  try {
+    const departmentsResult = await query(
+      "SELECT DISTINCT department FROM master_employees WHERE department IS NOT NULL ORDER BY department"
+    );
+
+    res.json({
+      departments: departmentsResult.rows.map((row) => row.department),
+    });
+  } catch (error) {
+    console.error("Get departments error:", error);
+    res.status(500).json({ error: "Failed to get departments" });
+  }
+});
+
+// Get single employee profile (HR/Admin only)
+router.get("/:id", requireHRorAdmin, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -147,8 +197,8 @@ router.get("/:id", async (req, res) => {
   }
 });
 
-// Add existing employee manually (Admin/HR only)
-router.post("/", async (req, res) => {
+// Add new employee manually (HR/Admin only)
+router.post("/", requireHRorAdmin, async (req, res) => {
   try {
     let { name, email, employeeType, role, department, joinDate, managerId } =
       req.body;
@@ -256,8 +306,8 @@ router.post("/", async (req, res) => {
   }
 });
 
-// Update employee info
-router.put("/:id", async (req, res) => {
+// Update employee information (HR/Admin only)
+router.put("/:id", requireHRorAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const {
@@ -343,8 +393,8 @@ router.put("/:id", async (req, res) => {
   }
 });
 
-// Deactivate/remove employee
-router.delete("/:id", async (req, res) => {
+// Deactivate/remove employee (HR/Admin only)
+router.delete("/:id", requireHRorAdmin, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -382,57 +432,6 @@ router.delete("/:id", async (req, res) => {
   } catch (error) {
     console.error("Deactivate master employee error:", error);
     res.status(500).json({ error: "Failed to deactivate employee" });
-  }
-});
-
-// Get employee's own profile
-router.get("/profile", async (req, res) => {
-  try {
-    const profileResult = await query(
-      `SELECT 
-        me.id,
-        me.user_id,
-        me.name,
-        me.email,
-        me.employee_type,
-        me.role,
-        me.status,
-        me.department,
-        me.join_date,
-        me.manager_id,
-        me.created_at,
-        me.updated_at,
-        manager.name as manager_name
-      FROM master_employees me
-      LEFT JOIN master_employees manager ON me.manager_id = manager.id
-      WHERE me.user_id = $1`,
-      [req.user.id]
-    );
-
-    if (profileResult.rows.length === 0) {
-      return res.json({ profile: null });
-    }
-
-    res.json({ profile: profileResult.rows[0] });
-  } catch (error) {
-    console.error("Get profile error:", error);
-    res.status(500).json({ error: "Failed to get profile" });
-  }
-});
-
-// Get departments for filter dropdown
-router.get("/departments/list", async (req, res) => {
-  try {
-    const departmentsResult = await query(
-      "SELECT DISTINCT department FROM master_employees WHERE department IS NOT NULL ORDER BY department"
-    );
-
-    res.json({
-      departments: departmentsResult.rows.map((row) => row.department),
-    });
-  } catch (error) {
-    console.error("Get departments error:", error);
-    res.status(500).json({ error: "Failed to get departments" });
   }
 });
 

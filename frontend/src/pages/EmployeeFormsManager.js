@@ -5,7 +5,6 @@ import {
   EyeIcon,
   PencilIcon,
   TrashIcon,
-  PlusIcon,
   MagnifyingGlassIcon,
   FunnelIcon,
 } from "@heroicons/react/24/outline";
@@ -16,7 +15,6 @@ const EmployeeFormsManager = () => {
   const [loading, setLoading] = useState(true);
   const [selectedForm, setSelectedForm] = useState(null);
   const [showFormModal, setShowFormModal] = useState(false);
-  const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingForm, setEditingForm] = useState(null);
   const [filters, setFilters] = useState({
     status: "",
@@ -109,28 +107,6 @@ const EmployeeFormsManager = () => {
     }
   };
 
-  const handleCreateForm = async (employeeId) => {
-    try {
-      console.log("Initializing form for employee ID:", employeeId);
-      console.log("Employee ID type:", typeof employeeId);
-
-      const response = await api.post(
-        `/hr/employee-forms/${employeeId}/initialize`
-      );
-      console.log("Initialize form response:", response.data);
-
-      alert("Form initialized successfully!");
-      setShowCreateModal(false);
-      fetchForms(); // Refresh the list
-    } catch (err) {
-      console.error("Failed to initialize form:", err);
-      console.error("Error response:", err.response?.data);
-      alert(
-        "Failed to create form: " + (err.response?.data?.error || err.message)
-      );
-    }
-  };
-
   const handleFilterChange = (key, value) => {
     setFilters((prev) => ({ ...prev, [key]: value }));
     setPagination((prev) => ({ ...prev, page: 1 })); // Reset to first page
@@ -188,13 +164,6 @@ const EmployeeFormsManager = () => {
               View, edit, and manage employee onboarding forms
             </p>
           </div>
-          <button
-            onClick={() => setShowCreateModal(true)}
-            className="btn-primary flex items-center"
-          >
-            <PlusIcon className="h-5 w-5 mr-2" />
-            Initialize Form
-          </button>
         </div>
       </div>
 
@@ -392,13 +361,7 @@ const EmployeeFormsManager = () => {
         />
       )}
 
-      {/* Create Form Modal */}
-      {showCreateModal && (
-        <CreateFormModal
-          onClose={() => setShowCreateModal(false)}
-          onCreate={handleCreateForm}
-        />
-      )}
+      {/* Create Form Modal - Removed */}
     </div>
   );
 };
@@ -728,105 +691,6 @@ const FormModal = ({ form, isEditing, onClose, onUpdate }) => {
             )}
           </form>
         </div>
-      </div>
-    </div>
-  );
-};
-
-// Create Form Modal Component
-const CreateFormModal = ({ onClose, onCreate }) => {
-  const [employeeId, setEmployeeId] = useState("");
-  const [employees, setEmployees] = useState([]);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    fetchEmployees();
-  }, []);
-
-  const fetchEmployees = async () => {
-    try {
-      const response = await api.get("/hr/employees");
-      setEmployees(response.data.employees);
-    } catch (err) {
-      console.error("Failed to fetch employees:", err);
-    }
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!employeeId) {
-      alert("Please select an employee");
-      return;
-    }
-
-    setLoading(true);
-    try {
-      await onCreate(employeeId);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-      <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-medium text-gray-900">
-            Initialize Employee Form
-          </h3>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600"
-          >
-            <svg
-              className="h-6 w-6"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M6 18L18 6M6 6l12 12"
-              />
-            </svg>
-          </button>
-        </div>
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="form-label">Select Employee</label>
-            <select
-              className="input-field"
-              value={employeeId}
-              onChange={(e) => setEmployeeId(e.target.value)}
-              required
-            >
-              <option value="">Choose an employee...</option>
-              {employees
-                .filter((emp) => emp.role === "employee")
-                .map((emp) => (
-                  <option key={emp.id} value={emp.id}>
-                    {emp.name} ({emp.email}) - {emp.employee_type}
-                  </option>
-                ))}
-            </select>
-          </div>
-
-          <div className="flex justify-end space-x-3">
-            <button type="button" onClick={onClose} className="btn-secondary">
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={loading || !employeeId}
-              className="btn-primary"
-            >
-              {loading ? "Creating..." : "Initialize Form"}
-            </button>
-          </div>
-        </form>
       </div>
     </div>
   );

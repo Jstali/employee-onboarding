@@ -24,7 +24,7 @@ router.post("/login", async (req, res) => {
 
     // Find user by email
     const userResult = await query(
-      "SELECT id, name, email, password_hash, role, employee_type, manager_id, status FROM users WHERE email = $1",
+      "SELECT id, name, email, password_hash, role, employee_type, manager_id FROM users WHERE email = $1",
       [email.toLowerCase()]
     );
 
@@ -33,21 +33,6 @@ router.post("/login", async (req, res) => {
     }
 
     const user = userResult.rows[0];
-
-    // Check if user is rejected
-    if (user.status === "rejected") {
-      return res
-        .status(401)
-        .json({ error: "Account has been rejected. Please contact HR." });
-    }
-
-    // Allow pending employees to log in (they need to fill out onboarding forms)
-    // Only reject pending users if they're not employees
-    if (user.status === "pending" && user.role !== "employee") {
-      return res
-        .status(401)
-        .json({ error: "Account is pending approval. Please contact HR." });
-    }
 
     // Verify password
     const isValidPassword = await bcrypt.compare(password, user.password_hash);
@@ -154,7 +139,7 @@ router.post("/change-password", authenticate, async (req, res) => {
 router.get("/profile", authenticate, async (req, res) => {
   try {
     const userResult = await query(
-      "SELECT id, name, email, role, employee_type, manager_id, status, created_at FROM users WHERE id = $1",
+      "SELECT id, name, email, role, employee_type, manager_id, created_at FROM users WHERE id = $1",
       [req.user.id]
     );
 

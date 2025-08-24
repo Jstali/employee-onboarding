@@ -106,7 +106,7 @@ router.get("/onboarding-form", authenticate, async (req, res) => {
 
     // Check if user is already onboarded
     const userResult = await query(
-      `SELECT status, form_submitted, onboarded FROM users WHERE id = $1`,
+      `SELECT form_submitted, onboarded FROM users WHERE id = $1`,
       [userId]
     );
 
@@ -114,7 +114,7 @@ router.get("/onboarding-form", authenticate, async (req, res) => {
       return res.status(404).json({ error: "User not found" });
     }
 
-    const { status, form_submitted, onboarded } = userResult.rows[0];
+    const { form_submitted, onboarded } = userResult.rows[0];
 
     // If already onboarded, redirect to attendance portal
     if (onboarded) {
@@ -131,15 +131,6 @@ router.get("/onboarding-form", authenticate, async (req, res) => {
         message: "Form already submitted. Awaiting HR approval.",
         status: "pending_approval",
         redirectTo: "/dashboard",
-      });
-    }
-
-    // Check if user is active (for existing logic)
-    if (status === "active") {
-      return res.status(200).json({
-        message: "User is already active. Redirect to attendance portal.",
-        status: "active",
-        redirectTo: "/attendance",
       });
     }
 
@@ -359,7 +350,7 @@ router.post(
             passportNumber || null,
             joinDate || null,
             photoUrl || null,
-            'pending'
+            "pending",
           ]
         );
         console.log("✅ New form inserted successfully");
@@ -549,7 +540,7 @@ router.get("/profile", authenticate, async (req, res) => {
     const userId = req.user.id;
 
     const userResult = await query(
-      `SELECT u.id, u.name, u.email, u.role, u.employee_type, u.status, u.created_at,
+      `SELECT u.id, u.name, u.email, u.role, u.employee_type, u.created_at,
               ed.join_date, ed.photo_url
        FROM users u
        LEFT JOIN employee_details ed ON u.id = ed.user_id
@@ -573,23 +564,14 @@ router.get("/form-status", authenticate, async (req, res) => {
   try {
     const userId = req.user.id;
 
-    const userResult = await query("SELECT status FROM users WHERE id = $1", [
-      userId,
-    ]);
-
-    if (userResult.rows.length === 0) {
-      return res.status(404).json({ error: "User not found" });
-    }
-
     const formResult = await query(
       "SELECT id FROM employee_details WHERE user_id = $1",
       [userId]
     );
 
     const status = {
-      userStatus: userResult.rows[0].status,
       formSubmitted: formResult.rows.length > 0,
-      canAccessAttendance: userResult.rows[0].status === "active",
+      canAccessAttendance: false, // Status-based access control removed
     };
 
     res.json(status);

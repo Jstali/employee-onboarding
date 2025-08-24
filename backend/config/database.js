@@ -136,7 +136,7 @@ const createTables = async (client) => {
     await client.query(`
       CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
       CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
-      CREATE INDEX IF NOT EXISTS idx_users_status ON users(status);
+
       CREATE INDEX IF NOT EXISTS idx_users_is_first_login ON users(is_first_login);
       CREATE INDEX IF NOT EXISTS idx_employee_details_user_id ON employee_details(user_id);
       CREATE INDEX IF NOT EXISTS idx_employee_documents_user_id ON employee_documents(user_id);
@@ -161,10 +161,10 @@ const createTables = async (client) => {
 
       await client.query(
         `
-        INSERT INTO users (name, email, password_hash, role, status, is_first_login)
-        VALUES ($1, $2, $3, $4, $5, $6)
+        INSERT INTO users (name, email, password_hash, role, is_first_login)
+        VALUES ($1, $2, $3, $4, $5)
       `,
-        ["HR Manager", "hr@nxzen.com", hashedPassword, "hr", "active", false]
+        ["HR Manager", "hr@nxzen.com", hashedPassword, "hr", false]
       );
 
       console.log("👔 Default HR user created (hr@nxzen.com / hr123)");
@@ -212,8 +212,8 @@ const createTables = async (client) => {
 
     if (hrExistsMaster.rows.length === 0) {
       await client.query(`
-        INSERT INTO master_employees (user_id, name, email, employee_type, role, status, department, join_date)
-        SELECT id, name, email, 'fulltime', role, status, 'HR', created_at::date
+        INSERT INTO master_employees (user_id, name, email, employee_type, role, department, join_date)
+        SELECT id, name, email, 'fulltime', role, 'HR', created_at::date
         FROM users WHERE email = 'hr@nxzen.com'
       `);
     }

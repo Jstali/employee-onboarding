@@ -87,25 +87,22 @@ const authenticate = async (req, res, next) => {
       return res.status(401).json({ error: "Invalid or expired token." });
     }
 
-    // Check if user still exists and is active
+    // Check if user still exists
     console.log(
       "🔐 Auth Debug - Looking up user in database with ID:",
       userData.id
     );
     const user = await query(
-      "SELECT id, name, email, role, employee_type, manager_id, status FROM users WHERE id = $1",
+      "SELECT id, name, email, role, employee_type, manager_id FROM users WHERE id = $1",
       [userData.id]
     );
 
     console.log("🔐 Auth Debug - Database query result:", user.rows);
-    console.log("🔐 Auth Debug - User status:", user.rows[0]?.status);
 
-    if (user.rows.length === 0 || user.rows[0].status === "rejected") {
-      console.log("❌ Auth Debug - User not found or rejected");
+    if (user.rows.length === 0) {
+      console.log("❌ Auth Debug - User not found");
       revokeToken(token);
-      return res
-        .status(401)
-        .json({ error: "User not found or account deactivated." });
+      return res.status(401).json({ error: "User not found." });
     }
 
     console.log(

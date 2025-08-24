@@ -100,11 +100,11 @@ router.post("/employees", async (req, res) => {
       Math.random().toString(36).slice(-4).toUpperCase();
     const hashedPassword = await bcrypt.hash(tempPassword, 12);
 
-    // Create user with 'pending' status - they need to fill out the form first
+    // Create user - they need to fill out the form first
     const userResult = await query(
-      `INSERT INTO users (name, email, password_hash, role, employee_type, department, manager_id, join_date, status, is_first_login, form_submitted, onboarded)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-       RETURNING id, name, email, employee_type, department, status, manager_id`,
+      `INSERT INTO users (name, email, password_hash, role, employee_type, department, manager_id, join_date, is_first_login, form_submitted, onboarded)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+       RETURNING id, name, email, employee_type, department, manager_id`,
       [
         name,
         email.toLowerCase(),
@@ -114,7 +114,6 @@ router.post("/employees", async (req, res) => {
         department,
         managerId || null,
         joinDate || null,
-        "pending", // Set to pending - they need to fill out form first
         true,
         false, // form_submitted = false - they haven't submitted form yet
         false, // onboarded = false - they need to complete onboarding first
@@ -156,7 +155,6 @@ router.post("/employees", async (req, res) => {
         employeeEmail: newUser.email,
         employeeType: newUser.employee_type,
         department: newUser.department,
-        status: "pending",
         emailSent: emailSent,
         emailError: emailError ? emailError.message : null,
       },
@@ -331,93 +329,102 @@ router.get("/employees/:id", async (req, res) => {
   }
 });
 
-// Update employee status
-router.patch("/employees/:id/status", async (req, res) => {
+// Status update functionality has been removed
+
+// Resend invitation email to existing employee
+router.post("/employees/:id/resend-invitation", async (req, res) => {
   try {
     const { id } = req.params;
-    const { status } = req.body;
+    console.log("🔍 HR Debug - Resending invitation email to employee ID:", id);
 
-    if (!["pending", "approved", "rejected"].includes(status)) {
-      return res.status(400).json({
-        error: "Invalid status. Must be pending, approved, or rejected",
-      });
-    }
-
-    // Update user status
-    const result = await query(
-      `UPDATE users 
-       SET status = $1, updated_at = CURRENT_TIMESTAMP
-       WHERE id = $2 AND role = 'employee'
-       RETURNING id, name, email, status`,
-      [status, id]
+    // Check if employee exists
+    const employeeResult = await query(
+      "SELECT id, name, email, role, employee_type, department FROM users WHERE id = $1 AND role = 'employee'",
+      [id]
     );
 
-    if (result.rows.length === 0) {
+    if (employeeResult.rows.length === 0) {
       return res.status(404).json({ error: "Employee not found" });
     }
 
-    // Update master_employees table
+    const employee = employeeResult.rows[0];
+
+    // Generate new temporary password
+    const tempPassword =
+      Math.random().toString(36).slice(-8) +
+      Math.random().toString(36).slice(-4).toUpperCase();
+    const hashedPassword = await bcrypt.hash(tempPassword, 12);
+
+    // Update the employee's password
     await query(
-      `UPDATE master_employees 
-       SET status = $1, updated_at = CURRENT_TIMESTAMP
-       WHERE user_id = $2`,
-      [status, id]
+      `UPDATE users 
+       SET password_hash = $1, is_first_login = true, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2`,
+      [hashedPassword, id]
     );
 
-    const employee = result.rows[0];
+    // Send new invitation email
+    let emailSent = false;
+    let emailError = null;
 
-    // Send email notification
-    if (status === "approved") {
-      try {
-        await sendEmail(
-          employee.email,
-          "Account Approved - Welcome to Nxzen!",
-          `<h2>Account Approved!</h2>
-           <p>Hello ${employee.name},</p>
-           <p>Your account has been approved! You can now access the attendance portal.</p>
-           <p>Please log in with your credentials and start marking your attendance.</p>
-           <p>Best regards,<br>HR Team</p>`
+    try {
+      const emailResult = await sendOnboardingEmail(
+        employee.email,
+        tempPassword
+      );
+      if (emailResult.success) {
+        console.log(
+          "✅ Invitation email resent successfully to:",
+          employee.email
         );
-        console.log("✅ Approval email sent successfully to:", employee.email);
-      } catch (emailError) {
-        console.error("❌ Failed to send approval email:", emailError);
-      }
-    } else if (status === "rejected") {
-      try {
-        await sendEmail(
-          employee.email,
-          "Account Status Update",
-          `<h2>Account Status Update</h2>
-           <p>Hello ${employee.name},</p>
-           <p>Your account has been rejected. Please contact HR for more information.</p>
-           <p>Best regards,<br>HR Team</p>`
+        emailSent = true;
+      } else {
+        console.error(
+          "❌ Failed to resend invitation email:",
+          emailResult.error
         );
-        console.log("✅ Rejection email sent successfully to:", employee.email);
-      } catch (emailError) {
-        console.error("❌ Failed to send rejection email:", emailError);
+        emailError = emailResult.error;
       }
+    } catch (err) {
+      console.error("❌ Failed to resend invitation email:", err);
+      emailError = err.message;
     }
 
     // Log action
     await logAction(
       req.user.id,
-      "employee_status_updated",
+      "invitation_email_resent",
       {
-        employeeId: id,
+        employeeId: employee.id,
+        employeeEmail: employee.email,
         employeeName: employee.name,
-        oldStatus: employee.status,
-        newStatus: status,
+        emailSent: emailSent,
+        emailError: emailError ? emailError.message : null,
       },
       req
     );
 
-    res.json({
-      message: "Employee status updated successfully",
-      employee: { ...employee, status },
-    });
+    // Provide response based on email status
+    if (emailSent) {
+      res.json({
+        message: "Invitation email resent successfully!",
+        employee: {
+          id: employee.id,
+          name: employee.name,
+          email: employee.email,
+        },
+        note: "New temporary password has been sent. Employee will need to reset their password on first login.",
+        emailStatus: "sent",
+      });
+    } else {
+      res.status(500).json({
+        error: "Failed to resend invitation email",
+        details: emailError ? emailError.message : "Unknown error",
+      });
+    }
   } catch (error) {
-    console.error("Update employee status error:", error);
-    res.status(500).json({ error: "Failed to update employee status" });
+    console.error("❌ HR Debug - Resend invitation error:", error);
+    res.status(500).json({ error: "Failed to resend invitation email" });
   }
 });
 
@@ -634,9 +641,9 @@ router.patch("/employees/:id/restore", async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Check if employee exists and is deleted
+    // Check if employee exists
     const employeeResult = await query(
-      "SELECT id, name, email, status FROM users WHERE id = $1 AND role = 'employee'",
+      "SELECT id, name, email FROM users WHERE id = $1 AND role = 'employee'",
       [id]
     );
 
@@ -646,19 +653,7 @@ router.patch("/employees/:id/restore", async (req, res) => {
 
     const employee = employeeResult.rows[0];
 
-    if (employee.status !== "deleted") {
-      return res.status(400).json({ error: "Employee is not deleted" });
-    }
-
     console.log(`🔄 Restoring employee: ${employee.name} (${employee.email})`);
-
-    // Restore user status to pending
-    await query(
-      `UPDATE users 
-       SET status = 'pending', updated_at = CURRENT_TIMESTAMP
-       WHERE id = $1`,
-      [id]
-    );
 
     // Restore master_employees status to active
     await query(
@@ -1517,13 +1512,13 @@ router.post("/employees/:id/add-to-master", async (req, res) => {
 router.get("/onboarded-employees", async (req, res) => {
   try {
     const result = await query(`
-      SELECT u.id, u.name, u.email, u.employee_type, u.department, u.status, 
+      SELECT u.id, u.name, u.email, u.employee_type, u.department, 
              u.manager_id, u.join_date, u.created_at,
              m.name as manager_name
       FROM users u
       LEFT JOIN users m ON u.manager_id = m.id
       WHERE u.role = 'employee' 
-        AND u.status = 'onboarded'
+        AND u.onboarded = true
         AND u.id NOT IN (
           SELECT user_id FROM master_employees
         )
@@ -1564,11 +1559,6 @@ router.get("/statistics", async (req, res) => {
       "SELECT COUNT(*) as total FROM users WHERE role = 'employee'"
     );
 
-    // Employees by status
-    const statusResult = await query(
-      "SELECT status, COUNT(*) as count FROM users WHERE role = 'employee' GROUP BY status"
-    );
-
     // Employees by department
     const departmentResult = await query(
       "SELECT department, COUNT(*) as count FROM users WHERE role = 'employee' AND department IS NOT NULL GROUP BY department"
@@ -1579,22 +1569,11 @@ router.get("/statistics", async (req, res) => {
       "SELECT COUNT(*) as total FROM employee_details"
     );
 
-    // Pending approvals
-    const pendingResult = await query(
-      "SELECT COUNT(*) as total FROM users WHERE role = 'employee' AND status = 'pending'"
-    );
-
     const statistics = {
       totalEmployees: parseInt(totalEmployeesResult.rows[0].total),
       totalForms: parseInt(formsResult.rows[0].total),
-      pendingApprovals: parseInt(pendingResult.rows[0].total),
-      byStatus: {},
       byDepartment: {},
     };
-
-    statusResult.rows.forEach((row) => {
-      statistics.byStatus[row.status] = parseInt(row.count);
-    });
 
     departmentResult.rows.forEach((row) => {
       statistics.byDepartment[row.department] = parseInt(row.count);

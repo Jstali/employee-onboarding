@@ -344,8 +344,8 @@ router.post(
           `INSERT INTO employee_details (
           user_id, personal_info, bank_info, education_info, tech_certificates,
           work_experience, contract_period, aadhar_number, pan_number, 
-          passport_number, join_date, photo_url
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+          passport_number, join_date, photo_url, status
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
           [
             userId,
             JSON.stringify(parsedPersonalInfo),
@@ -359,6 +359,7 @@ router.post(
             passportNumber || null,
             joinDate || null,
             photoUrl || null,
+            'pending'
           ]
         );
         console.log("✅ New form inserted successfully");

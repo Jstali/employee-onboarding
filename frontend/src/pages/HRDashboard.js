@@ -3,9 +3,6 @@ import { useAuth } from "../contexts/AuthContext";
 import api from "../services/api";
 import {
   UsersIcon,
-  CheckCircleIcon,
-  XCircleIcon,
-  ClockIcon,
   UserPlusIcon,
   TrashIcon,
   ClipboardDocumentListIcon,
@@ -45,7 +42,6 @@ const HRDashboard = () => {
   const [errorMessage, setErrorMessage] = useState("");
   const [sendingEmployeeMail, setSendingEmployeeMail] = useState(false);
   const [filters, setFilters] = useState({
-    status: "",
     employeeType: "",
     showDeleted: false, // Add filter for deleted employees
   });
@@ -70,7 +66,6 @@ const HRDashboard = () => {
 
       // Build query parameters for filters
       const queryParams = new URLSearchParams();
-      if (filters.status) queryParams.append("status", filters.status);
       if (filters.employeeType)
         queryParams.append("employeeType", filters.employeeType);
       if (filters.showDeleted) queryParams.append("showDeleted", "true");
@@ -372,70 +367,7 @@ const HRDashboard = () => {
     }
   };
 
-  const getStatusIcon = (status) => {
-    switch (status) {
-      case "approved":
-        return <CheckCircleIcon className="h-5 w-5 text-green-500" />;
-      case "rejected":
-        return <XCircleIcon className="h-5 w-5 text-red-500" />;
-      case "pending":
-        return <ClockIcon className="h-5 w-5 text-yellow-500" />;
-      case "deleted":
-        return <TrashIcon className="h-5 w-5 text-gray-500" />;
-      default:
-        return <ClockIcon className="h-5 w-5 text-gray-500" />;
-    }
-  };
-
-  // Handle form approval/rejection
-  const handleFormApproval = async (formId, action) => {
-    try {
-      console.log(
-        "🔍 Frontend Debug - Approving form:",
-        formId,
-        "with action:",
-        action
-      );
-
-      await api.patch(`/hr/employee-forms/${formId}/status`, {
-        status: action,
-        approved_by: user.id,
-      });
-
-      console.log(
-        "🔍 Frontend Debug - API call successful, updating local state"
-      );
-
-      // Update local state immediately for better UX
-      const updatedForms = employeeForms.map((form) => {
-        if (form.form_id === formId || form.id === formId) {
-          console.log(
-            "🔍 Frontend Debug - Updating form:",
-            form.form_id || form.id,
-            "from status:",
-            form.form_status,
-            "to:",
-            action
-          );
-          return { ...form, form_status: action };
-        }
-        return form;
-      });
-
-      console.log("🔍 Frontend Debug - Updated forms:", updatedForms);
-      setEmployeeForms(updatedForms);
-
-      setSuccessMessage(`Form ${action} successfully!`);
-      setTimeout(() => setSuccessMessage(""), 5000);
-    } catch (err) {
-      console.error("❌ Frontend Debug - Form approval error:", err);
-      setErrorMessage(
-        `Failed to ${action} form: ` +
-          (err.response?.data?.error || err.message)
-      );
-      setTimeout(() => setErrorMessage(""), 5000);
-    }
-  };
+  // Form approval functionality has been removed
 
   // View form details
   const viewFormDetails = async (formId) => {
@@ -519,21 +451,6 @@ const HRDashboard = () => {
         "Failed to update form: " + (err.response?.data?.error || err.message)
       );
       setTimeout(() => setErrorMessage(""), 5000);
-    }
-  };
-
-  const getStatusColor = (status) => {
-    switch (status) {
-      case "approved":
-        return "text-green-800 bg-green-100";
-      case "rejected":
-        return "text-red-800 bg-red-100";
-      case "pending":
-        return "text-yellow-800 bg-yellow-100";
-      case "deleted":
-        return "text-gray-800 bg-gray-100";
-      default:
-        return "text-gray-800 bg-gray-100";
     }
   };
 
@@ -753,24 +670,6 @@ const HRDashboard = () => {
         <div className="bg-white shadow rounded-lg p-6">
           <div className="flex items-center">
             <div className="flex-shrink-0">
-              <CheckCircleIcon className="h-8 w-8 text-green-600" />
-            </div>
-            <div className="ml-5 w-0 flex-1">
-              <dl>
-                <dt className="text-sm font-medium text-gray-500 truncate">
-                  Approved
-                </dt>
-                <dd className="text-lg font-medium text-gray-900">
-                  {employees.filter((emp) => emp.status === "approved").length}
-                </dd>
-              </dl>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white shadow rounded-lg p-6">
-          <div className="flex items-center">
-            <div className="flex-shrink-0">
               <ClipboardDocumentListIcon className="h-8 w-8 text-blue-600" />
             </div>
             <div className="ml-5 w-0 flex-1">
@@ -810,9 +709,7 @@ const HRDashboard = () => {
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Email
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Form Status
-                    </th>
+
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Submitted Date
                     </th>
@@ -830,74 +727,13 @@ const HRDashboard = () => {
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {form.email || "N/A"}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span
-                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                            form.form_status === "pending"
-                              ? "bg-yellow-100 text-yellow-800"
-                              : form.form_status === "approved"
-                              ? "bg-green-100 text-green-800"
-                              : "bg-red-100 text-red-800"
-                          }`}
-                        >
-                          {form.form_status === "pending"
-                            ? "⏳ Pending"
-                            : form.form_status === "approved"
-                            ? "✅ Approved"
-                            : "❌ Rejected"}
-                        </span>
-                      </td>
+
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         {form.form_created_at
                           ? new Date(form.form_created_at).toLocaleDateString()
                           : "N/A"}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
-                        {/* Show Approve button only if form is pending */}
-                        {form.form_status === "pending" && (
-                          <button
-                            onClick={() =>
-                              handleFormApproval(
-                                form.form_id || form.id,
-                                "approved"
-                              )
-                            }
-                            className="text-green-600 hover:text-green-900 bg-green-100 hover:bg-green-200 px-2 py-1 rounded text-xs font-medium"
-                            title="Approve Form"
-                          >
-                            ✅ Approve
-                          </button>
-                        )}
-
-                        {/* Show Reject button only if form is pending */}
-                        {form.form_status === "pending" && (
-                          <button
-                            onClick={() =>
-                              handleFormApproval(
-                                form.form_id || form.id,
-                                "rejected"
-                              )
-                            }
-                            className="text-red-600 hover:text-red-900 bg-red-100 hover:bg-red-200 px-2 py-1 rounded text-xs font-medium"
-                            title="Reject Form"
-                          >
-                            ❌ Reject
-                          </button>
-                        )}
-
-                        {/* Show status indicator for approved/rejected forms */}
-                        {form.form_status === "approved" && (
-                          <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-green-100 text-green-800">
-                            ✅ Approved
-                          </span>
-                        )}
-
-                        {form.form_status === "rejected" && (
-                          <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-red-100 text-red-800">
-                            ❌ Rejected
-                          </span>
-                        )}
-
                         <button
                           onClick={() =>
                             viewFormDetails(form.form_id || form.id)
@@ -954,25 +790,6 @@ const HRDashboard = () => {
           <div className="flex flex-wrap items-center gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Status Filter
-              </label>
-              <select
-                className="input-field"
-                value={filters.status}
-                onChange={(e) =>
-                  setFilters({ ...filters, status: e.target.value })
-                }
-              >
-                <option value="">All Statuses</option>
-                <option value="pending">Pending</option>
-                <option value="approved">Approved</option>
-                <option value="rejected">Rejected</option>
-                <option value="deleted">Deleted</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
                 Employee Type
               </label>
               <select
@@ -1004,21 +821,6 @@ const HRDashboard = () => {
                 </span>
               </label>
             </div>
-
-            <div className="ml-auto">
-              <button
-                onClick={() =>
-                  setFilters({
-                    status: "",
-                    employeeType: "",
-                    showDeleted: false,
-                  })
-                }
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-              >
-                Clear Filters
-              </button>
-            </div>
           </div>
         </div>
 
@@ -1039,7 +841,7 @@ const HRDashboard = () => {
                   Type
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status & Actions
+                  Actions
                 </th>
 
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -1068,40 +870,16 @@ const HRDashboard = () => {
                     {employee.employee_type}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    {/* Show Approve/Reject options for pending and onboarded statuses */}
-                    {employee.status === "pending" ||
-                    employee.status === "onboarded" ? (
-                      <div className="flex space-x-2">
-                        <button
-                          onClick={() =>
-                            handleStatusChange(employee.id, "approved")
-                          }
-                          className="text-green-600 hover:text-green-900 bg-green-100 hover:bg-green-200 px-2 py-1 rounded text-xs font-medium"
-                          title="Approve Employee"
-                        >
-                          ✅ Approve
-                        </button>
-                        <button
-                          onClick={() =>
-                            handleStatusChange(employee.id, "rejected")
-                          }
-                          className="text-red-600 hover:text-red-900 bg-red-100 hover:bg-red-200 px-2 py-1 rounded text-xs font-medium"
-                          title="Reject Employee"
-                        >
-                          ❌ Reject
-                        </button>
-                      </div>
-                    ) : (
-                      /* Show status badge for other statuses (approved, rejected, deleted) */
-                      <span
-                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(
-                          employee.status
-                        )}`}
+                    <div className="flex items-center space-x-2">
+                      {/* Delete Button - Show for all employees */}
+                      <button
+                        onClick={() => openDeleteModal(employee)}
+                        className="text-red-600 hover:text-red-900 bg-red-100 hover:bg-red-200 px-2 py-1 rounded text-xs font-medium"
+                        title="Delete Employee"
                       >
-                        {getStatusIcon(employee.status)}
-                        <span className="ml-1">{employee.status}</span>
-                      </span>
-                    )}
+                        🗑️ Delete
+                      </button>
+                    </div>
                   </td>
 
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">

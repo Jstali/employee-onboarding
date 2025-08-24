@@ -1084,8 +1084,8 @@ router.get("/employee-forms", async (req, res) => {
     const offset = (pageNum - 1) * limitNum;
 
     let queryText = `
-      SELECT u.id, u.name, u.email, u.employee_type, u.department, u.status as user_status, u.created_at,
-             ed.id as form_id, ed.status as form_status, ed.created_at as form_created_at, ed.updated_at as form_updated_at,
+      SELECT u.id, u.name, u.email, u.employee_type, u.department, u.created_at,
+             ed.id as form_id, ed.created_at as form_created_at, ed.updated_at as form_updated_at,
              COALESCE(doc_counts.document_count, 0) as document_count
       FROM users u
       INNER JOIN employee_details ed ON u.id = ed.user_id
@@ -1099,11 +1099,7 @@ router.get("/employee-forms", async (req, res) => {
     let queryParams = [];
     let paramCount = 0;
 
-    if (status) {
-      paramCount++;
-      queryText += ` AND ed.status = $${paramCount}`;
-      queryParams.push(status);
-    }
+    // Status filtering removed - forms no longer have status
 
     if (search) {
       paramCount++;
@@ -1119,13 +1115,8 @@ router.get("/employee-forms", async (req, res) => {
       WHERE u.role = 'employee' AND ed.id IS NOT NULL
     `;
 
-    if (status) {
-      countQuery += ` AND ed.status = $1`;
-    }
     if (search) {
-      countQuery += status
-        ? ` AND (u.name ILIKE $2 OR u.email ILIKE $2)`
-        : ` AND (u.name ILIKE $1 OR u.email ILIKE $1)`;
+      countQuery += ` AND (u.name ILIKE $1 OR u.email ILIKE $1)`;
     }
 
     const countResult = await query(countQuery, queryParams);
@@ -1140,6 +1131,16 @@ router.get("/employee-forms", async (req, res) => {
     queryParams.push(limitNum, offset);
 
     const result = await query(queryText, queryParams);
+
+    console.log("🔍 Backend Debug - Forms query result:", {
+      totalForms: result.rows.length,
+      sampleForm: result.rows[0]
+        ? {
+            id: result.rows[0].id,
+            form_id: result.rows[0].form_id,
+          }
+        : null,
+    });
 
     const pages = Math.ceil(total / limitNum);
 
@@ -1322,65 +1323,7 @@ router.put("/employee-forms/:id", async (req, res) => {
 });
 
 // Update employee form status
-router.patch("/employee-forms/:id/status", async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { status, approved_by } = req.body;
-
-    // Check if form exists
-    const formExists = await query(
-      "SELECT id, user_id FROM employee_details WHERE id = $1",
-      [id]
-    );
-
-    if (formExists.rows.length === 0) {
-      return res.status(404).json({ error: "Form not found" });
-    }
-
-    const { user_id } = formExists.rows[0];
-
-    // Update form status
-    await query(
-      "UPDATE employee_details SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
-      [status, id]
-    );
-
-    // Update user status based on form status
-    if (status === "approved") {
-      await query(
-        "UPDATE users SET status = 'approved', updated_at = CURRENT_TIMESTAMP WHERE id = $1",
-        [user_id]
-      );
-    } else if (status === "rejected") {
-      await query(
-        "UPDATE users SET status = 'rejected', updated_at = CURRENT_TIMESTAMP WHERE id = $1",
-        [user_id]
-      );
-    }
-
-    // Log action
-    await logAction(
-      req.user.id,
-      "employee_form_status_updated",
-      {
-        formId: id,
-        userId: user_id,
-        newStatus: status,
-        approvedBy: approved_by,
-      },
-      req
-    );
-
-    res.json({
-      message: "Employee form status updated successfully",
-      status: status,
-      userId: user_id,
-    });
-  } catch (error) {
-    console.error("Update employee form status error:", error);
-    res.status(500).json({ error: "Failed to update employee form status" });
-  }
-});
+// Form status functionality has been removed
 
 // Delete employee form
 router.delete("/employee-forms/:id", async (req, res) => {

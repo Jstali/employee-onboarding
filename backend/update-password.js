@@ -8,10 +8,10 @@ async function updateHRPassword() {
 
     await query("UPDATE users SET password_hash = $1 WHERE email = $2", [
       hash,
-      "hr@company.com",
+      "hr@nxzen.com",
     ]);
     console.log("✅ HR password updated successfully!");
-    console.log("📧 Email: hr@company.com");
+    console.log("📧 Email: hr@nxzen.com");
     console.log("🔑 Password: hr123");
   } catch (err) {
     console.error("❌ Error updating password:", err.message);

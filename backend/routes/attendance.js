@@ -218,11 +218,21 @@ router.get("/my-calendar", authenticate, async (req, res) => {
 // HR: Get all employees attendance (filtered)
 router.get("/all", authenticate, authorize(["hr"]), async (req, res) => {
   try {
-    const { employeeId, department, startDate, endDate, status } = req.query;
+    const {
+      employeeId,
+      department,
+      startDate,
+      endDate,
+      status,
+      month,
+      year,
+      leavesGreaterThan,
+    } = req.query;
 
     let queryText = `
       SELECT 
         a.id,
+        a.user_id as employee_id,
         a.date,
         a.status,
         a.reason,
@@ -257,10 +267,31 @@ router.get("/all", authenticate, authorize(["hr"]), async (req, res) => {
       paramCount++;
     }
 
+    if (month && year) {
+      paramCount++;
+      queryText += ` AND EXTRACT(MONTH FROM a.date) = $${paramCount} AND EXTRACT(YEAR FROM a.date) = $${
+        paramCount + 1
+      }`;
+      queryParams.push(month, year);
+      paramCount++;
+    }
+
     if (status) {
       paramCount++;
       queryText += ` AND a.status = $${paramCount}`;
       queryParams.push(status);
+    }
+
+    // Filter by leaves greater than specified number
+    if (leavesGreaterThan && leavesGreaterThan > 0) {
+      paramCount++;
+      queryText += ` AND a.user_id IN (
+        SELECT user_id FROM attendance 
+        WHERE status = 'leave' 
+        GROUP BY user_id 
+        HAVING COUNT(*) > $${paramCount}
+      )`;
+      queryParams.push(leavesGreaterThan);
     }
 
     queryText += " ORDER BY a.date DESC, u.name";
@@ -280,14 +311,37 @@ router.get("/all", authenticate, authorize(["hr"]), async (req, res) => {
 // HR: Get attendance summary for dashboard
 router.get("/summary", authenticate, authorize(["hr"]), async (req, res) => {
   try {
-    const { startDate, endDate } = req.query;
+    const { startDate, endDate, leavesGreaterThan } = req.query;
 
     let dateFilter = "";
     let queryParams = [];
+    let paramCount = 0;
 
     if (startDate && endDate) {
       dateFilter = "WHERE date BETWEEN $1 AND $2";
       queryParams = [startDate, endDate];
+      paramCount = 2;
+    }
+
+    // Filter by leaves greater than specified number
+    if (leavesGreaterThan && leavesGreaterThan > 0) {
+      if (dateFilter) {
+        dateFilter += ` AND user_id IN (
+          SELECT user_id FROM attendance 
+          WHERE status = 'leave' 
+          GROUP BY user_id 
+          HAVING COUNT(*) > $${paramCount + 1}
+        )`;
+        queryParams.push(leavesGreaterThan);
+      } else {
+        dateFilter = `WHERE user_id IN (
+          SELECT user_id FROM attendance 
+          WHERE status = 'leave' 
+          GROUP BY user_id 
+          HAVING COUNT(*) > $1
+        )`;
+        queryParams = [leavesGreaterThan];
+      }
     }
 
     // Get attendance counts
@@ -308,6 +362,7 @@ router.get("/summary", authenticate, authorize(["hr"]), async (req, res) => {
 
     const summary = {
       present: 0,
+      absent: 0,
       wfh: 0,
       leave: 0,
       total: 0,

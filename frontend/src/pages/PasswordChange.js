@@ -5,7 +5,7 @@ import { useAuth } from "../contexts/AuthContext";
 import api from "../services/api";
 
 const PasswordChange = () => {
-  const { user } = useAuth();
+  const { user, refreshOnboardingStatus } = useAuth();
   const navigate = useNavigate();
   const [formData, setFormData] = useState({
     newPassword: "",
@@ -39,9 +39,12 @@ const PasswordChange = () => {
         newPassword: formData.newPassword,
       });
 
-      setSuccess("Password changed successfully! Redirecting...");
+      setSuccess("Password changed successfully! Redirecting to form...");
       
-      // Redirect after 2 seconds
+      // Refresh user onboarding status to get latest state
+      await refreshOnboardingStatus();
+      
+      // Redirect after 2 seconds to form page
       setTimeout(() => {
         navigate("/form");
       }, 2000);

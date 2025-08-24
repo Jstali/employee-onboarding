@@ -53,10 +53,32 @@ const generalLimiter = rateLimit({
 
 // CORS configuration
 const corsOptions = {
-  origin: process.env.FRONTEND_URL || "http://localhost:5180",
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+
+    const allowedOrigins = [
+      process.env.FRONTEND_URL || "http://localhost:5147",
+      "http://localhost:3000",
+      "http://localhost:5147",
+      "http://localhost:5022",
+      "http://127.0.0.1:3000",
+      "http://127.0.0.1:5147",
+      "http://127.0.0.1:5022",
+    ];
+
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      console.log("CORS blocked origin:", origin);
+      callback(new Error("Not allowed by CORS"));
+    }
+  },
   credentials: true,
-  methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
-  allowedHeaders: ["Content-Type", "Authorization"],
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+  preflightContinue: false,
+  optionsSuccessStatus: 204,
 };
 
 // Middleware
@@ -88,6 +110,8 @@ app.get("/health", (req, res) => {
     environment: process.env.NODE_ENV || "development",
   });
 });
+
+// Email test endpoint removed - now using utils/email.js with NodeMailer
 
 // Rate limit status endpoint
 app.get("/rate-limit-status", (req, res) => {
@@ -169,7 +193,7 @@ app.use("*", (req, res) => {
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(
-    `📱 Frontend URL: ${process.env.FRONTEND_URL || "http://localhost:5180"}`
+    `📱 Frontend URL: ${process.env.FRONTEND_URL || "http://localhost:5147"}`
   );
   console.log(`🔗 Health check: http://localhost:${PORT}/health`);
   console.log(

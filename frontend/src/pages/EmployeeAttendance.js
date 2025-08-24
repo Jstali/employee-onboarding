@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   CalendarIcon,
   CheckCircleIcon,
@@ -25,12 +25,7 @@ const EmployeeAttendance = () => {
     reason: "",
   });
 
-  useEffect(() => {
-    fetchAttendance();
-    fetchCalendar();
-  }, [currentMonth, currentYear]);
-
-  const fetchAttendance = async () => {
+  const fetchAttendance = useCallback(async () => {
     try {
       const response = await api.get("/attendance/my-attendance");
       setAttendance(response.data.attendance);
@@ -41,9 +36,9 @@ const EmployeeAttendance = () => {
         text: "Failed to fetch attendance data",
       });
     }
-  };
+  }, []);
 
-  const fetchCalendar = async () => {
+  const fetchCalendar = useCallback(async () => {
     try {
       const response = await api.get(
         `/attendance/my-calendar?month=${currentMonth}&year=${currentYear}`
@@ -58,7 +53,12 @@ const EmployeeAttendance = () => {
       });
       setLoading(false);
     }
-  };
+  }, [currentMonth, currentYear]);
+
+  useEffect(() => {
+    fetchAttendance();
+    fetchCalendar();
+  }, [fetchAttendance, fetchCalendar]);
 
   const handleAttendanceSubmit = async (e) => {
     e.preventDefault();
@@ -417,9 +417,9 @@ const EmployeeAttendance = () => {
             ))}
 
             {/* Calendar days */}
-            {calendar.map((day) => (
+            {calendar.map((day, index) => (
               <div
-                key={day.date}
+                key={`${day.date}-${index}`}
                 className={`p-2 text-center border min-h-[60px] flex flex-col items-center justify-center ${
                   day.isWeekend
                     ? "bg-gray-50 text-gray-400"

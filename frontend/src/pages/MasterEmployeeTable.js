@@ -5,7 +5,6 @@ import {
   EyeIcon,
   PencilIcon,
   UserMinusIcon,
-  PlusIcon,
   MagnifyingGlassIcon,
   FunnelIcon,
   UserPlusIcon,
@@ -36,13 +35,6 @@ const MasterEmployeeTable = () => {
     pages: 0,
   });
 
-  useEffect(() => {
-    if (!authLoading && user) {
-      fetchEmployees();
-      fetchDepartments();
-    }
-  }, [authLoading, user, filters, pagination.page]);
-
   const fetchEmployees = useCallback(async () => {
     try {
       setLoading(true);
@@ -67,14 +59,28 @@ const MasterEmployeeTable = () => {
     }
   }, [pagination.page, pagination.limit, filters]);
 
-  const fetchDepartments = async () => {
+  const fetchDepartments = useCallback(async () => {
     try {
       const response = await api.get("/master/departments/list");
       setDepartments(response.data.departments);
     } catch (err) {
       console.error("Failed to fetch departments:", err);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    if (!authLoading && user) {
+      fetchEmployees();
+      fetchDepartments();
+    }
+  }, [
+    authLoading,
+    user,
+    filters,
+    pagination.page,
+    fetchEmployees,
+    fetchDepartments,
+  ]);
 
   const handleViewEmployee = async (employeeId) => {
     try {
@@ -162,11 +168,18 @@ const MasterEmployeeTable = () => {
 
   const handleCreateEmployee = async (employeeData) => {
     try {
+      // Validate Employee ID format
+      if (!/^\d{6}$/.test(employeeData.employeeId)) {
+        alert("Employee ID must be exactly 6 digits");
+        return;
+      }
+
       // Clean up empty strings for optional fields
       const cleanData = {
         ...employeeData,
         managerId: employeeData.managerId || null,
         joinDate: employeeData.joinDate || null,
+        personalEmail: employeeData.personalEmail || null,
       };
 
       console.log("Creating employee with data:", cleanData);
@@ -347,7 +360,16 @@ const MasterEmployeeTable = () => {
             <thead className="bg-gray-50">
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Employee
+                  Employee ID
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Employee Name
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Employee Nxzen Email
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Employee Personal Email
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Type
@@ -375,15 +397,17 @@ const MasterEmployeeTable = () => {
             <tbody className="bg-white divide-y divide-gray-200">
               {employees.map((employee) => (
                 <tr key={employee.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div>
-                      <div className="text-sm font-medium text-gray-900">
-                        {employee.name}
-                      </div>
-                      <div className="text-sm text-gray-500">
-                        {employee.email}
-                      </div>
-                    </div>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                    {employee.employee_id || "N/A"}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                    {employee.name}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    {employee.email}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    {employee.personal_email || "N/A"}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 capitalize">
                     {employee.employee_type}
@@ -554,12 +578,23 @@ const ViewEmployeeModal = ({ employee, onClose }) => {
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
+              <label className="form-label font-medium">Employee ID</label>
+              <p className="text-gray-900">{employee.employee_id || "N/A"}</p>
+            </div>
+
+            <div>
               <label className="form-label font-medium">Name</label>
               <p className="text-gray-900">{employee.name}</p>
             </div>
             <div>
-              <label className="form-label font-medium">Email</label>
+              <label className="form-label font-medium">Nxzen Email</label>
               <p className="text-gray-900">{employee.email}</p>
+            </div>
+            <div>
+              <label className="form-label font-medium">Personal Email</label>
+              <p className="text-gray-900">
+                {employee.personal_email || "N/A"}
+              </p>
             </div>
             <div>
               <label className="form-label font-medium">Employee Type</label>
@@ -661,7 +696,7 @@ const EditEmployeeModal = ({ employee, departments, onClose, onUpdate }) => {
               />
             </div>
             <div>
-              <label className="form-label">Email</label>
+              <label className="form-label">Nxzen Email</label>
               <input
                 type="email"
                 className="input-field"
@@ -670,6 +705,21 @@ const EditEmployeeModal = ({ employee, departments, onClose, onUpdate }) => {
                   setFormData((prev) => ({ ...prev, email: e.target.value }))
                 }
                 required
+              />
+            </div>
+            <div>
+              <label className="form-label">Personal Email</label>
+              <input
+                type="email"
+                className="input-field"
+                value={formData.personal_email || ""}
+                onChange={(e) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    personal_email: e.target.value,
+                  }))
+                }
+                placeholder="Optional"
               />
             </div>
             <div>
@@ -776,8 +826,10 @@ const EditEmployeeModal = ({ employee, departments, onClose, onUpdate }) => {
 // Create Employee Modal Component
 const CreateEmployeeModal = ({ departments, onClose, onCreate }) => {
   const [formData, setFormData] = useState({
+    employeeId: "",
     name: "",
     email: "",
+    personalEmail: "",
     employeeType: "",
     role: "",
     department: "",
@@ -839,6 +891,27 @@ const CreateEmployeeModal = ({ departments, onClose, onCreate }) => {
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
+              <label className="form-label">Employee ID *</label>
+              <input
+                type="text"
+                className="input-field"
+                value={formData.employeeId}
+                onChange={(e) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    employeeId: e.target.value,
+                  }))
+                }
+                placeholder="100001"
+                maxLength={6}
+                pattern="\d{6}"
+                required
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Must be exactly 6 digits
+              </p>
+            </div>
+            <div>
               <label className="form-label">Name *</label>
               <input
                 type="text"
@@ -851,7 +924,7 @@ const CreateEmployeeModal = ({ departments, onClose, onCreate }) => {
               />
             </div>
             <div>
-              <label className="form-label">Email *</label>
+              <label className="form-label">Nxzen Email *</label>
               <input
                 type="email"
                 className="input-field"
@@ -860,6 +933,21 @@ const CreateEmployeeModal = ({ departments, onClose, onCreate }) => {
                   setFormData((prev) => ({ ...prev, email: e.target.value }))
                 }
                 required
+              />
+            </div>
+            <div>
+              <label className="form-label">Personal Email</label>
+              <input
+                type="email"
+                className="input-field"
+                value={formData.personalEmail}
+                onChange={(e) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    personalEmail: e.target.value,
+                  }))
+                }
+                placeholder="Optional"
               />
             </div>
             <div>
@@ -936,7 +1024,7 @@ const CreateEmployeeModal = ({ departments, onClose, onCreate }) => {
               Cancel
             </button>
             <button type="submit" disabled={saving} className="btn-primary">
-              {saving ? "Creating..." : "Create Employee"}
+              {saving ? "Submitting..." : "Submit"}
             </button>
           </div>
         </form>

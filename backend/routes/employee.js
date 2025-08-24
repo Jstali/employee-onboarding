@@ -18,7 +18,10 @@ const storage = multer.diskStorage({
   },
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
-    cb(null, file.fieldname + "-" + uniqueSuffix + path.extname(file.originalname));
+    cb(
+      null,
+      file.fieldname + "-" + uniqueSuffix + path.extname(file.originalname)
+    );
   },
 });
 
@@ -29,9 +32,11 @@ const upload = multer({
   },
   fileFilter: (req, file, cb) => {
     const allowedTypes = /jpeg|jpg|png|pdf|doc|docx/;
-    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+    const extname = allowedTypes.test(
+      path.extname(file.originalname).toLowerCase()
+    );
     const mimetype = allowedTypes.test(file.mimetype);
-    
+
     if (mimetype && extname) {
       return cb(null, true);
     } else {
@@ -67,8 +72,8 @@ router.post("/change-password", authenticate, async (req, res) => {
     const { newPassword } = req.body;
 
     if (!newPassword || newPassword.length < 6) {
-      return res.status(400).json({ 
-        error: "New password must be at least 6 characters long" 
+      return res.status(400).json({
+        error: "New password must be at least 6 characters long",
       });
     }
 
@@ -99,9 +104,9 @@ router.get("/onboarding-form", authenticate, async (req, res) => {
   try {
     const userId = req.user.id;
 
-    // Check if user is active
+    // Check if user is already onboarded
     const userResult = await query(
-      "SELECT status FROM users WHERE id = $1",
+      `SELECT status, form_submitted, onboarded FROM users WHERE id = $1`,
       [userId]
     );
 
@@ -109,10 +114,32 @@ router.get("/onboarding-form", authenticate, async (req, res) => {
       return res.status(404).json({ error: "User not found" });
     }
 
-    if (userResult.rows[0].status === "active") {
-      return res.status(200).json({ 
+    const { status, form_submitted, onboarded } = userResult.rows[0];
+
+    // If already onboarded, redirect to attendance portal
+    if (onboarded) {
+      return res.status(200).json({
+        message: "User is already onboarded. Redirect to attendance portal.",
+        status: "onboarded",
+        redirectTo: "/attendance",
+      });
+    }
+
+    // If form already submitted but not onboarded, show awaiting approval message
+    if (form_submitted && !onboarded) {
+      return res.status(200).json({
+        message: "Form already submitted. Awaiting HR approval.",
+        status: "pending_approval",
+        redirectTo: "/dashboard",
+      });
+    }
+
+    // Check if user is active (for existing logic)
+    if (status === "active") {
+      return res.status(200).json({
         message: "User is already active. Redirect to attendance portal.",
-        status: "active"
+        status: "active",
+        redirectTo: "/attendance",
       });
     }
 
@@ -164,156 +191,284 @@ router.get("/onboarding-form", authenticate, async (req, res) => {
 });
 
 // Submit onboarding form with file uploads
-router.post("/onboarding-form", authenticate, upload.fields([
-  { name: "profilePhoto", maxCount: 1 },
-  { name: "aadharDocument", maxCount: 1 },
-  { name: "panDocument", maxCount: 1 },
-  { name: "tenthMarksheet", maxCount: 1 },
-  { name: "twelfthMarksheet", maxCount: 1 },
-  { name: "degreeCertificate", maxCount: 1 },
-]), async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const {
-      personalInfo,
-      bankInfo,
-      educationInfo,
-      techCertificates,
-      workExperience,
-      contractPeriod,
-      aadharNumber,
-      panNumber,
-      passportNumber,
-      joinDate,
-    } = req.body;
+router.post(
+  "/onboarding-form",
+  authenticate,
+  upload.fields([
+    { name: "profilePhoto", maxCount: 1 },
+    { name: "aadharDocument", maxCount: 1 },
+    { name: "panDocument", maxCount: 1 },
+    { name: "tenthMarksheet", maxCount: 1 },
+    { name: "twelfthMarksheet", maxCount: 1 },
+    { name: "degreeCertificate", maxCount: 1 },
+  ]),
+  async (req, res) => {
+    try {
+      const userId = req.user.id;
+      console.log(
+        "🔍 Backend Debug - Form submission started for user:",
+        userId
+      );
+      console.log("🔍 Backend Debug - Request body:", req.body);
+      console.log("🔍 Backend Debug - Request files:", req.files);
 
-    // Parse JSON fields
-    const parsedPersonalInfo = typeof personalInfo === "string" ? JSON.parse(personalInfo) : personalInfo;
-    const parsedBankInfo = typeof bankInfo === "string" ? JSON.parse(bankInfo) : bankInfo;
-    const parsedEducationInfo = typeof educationInfo === "string" ? JSON.parse(educationInfo) : educationInfo;
-    const parsedTechCertificates = typeof techCertificates === "string" ? JSON.parse(techCertificates) : techCertificates;
-    const parsedWorkExperience = typeof workExperience === "string" ? JSON.parse(workExperience) : workExperience;
-    const parsedContractPeriod = typeof contractPeriod === "string" ? JSON.parse(contractPeriod) : contractPeriod;
+      const {
+        personalInfo,
+        bankInfo,
+        educationInfo,
+        techCertificates,
+        workExperience,
+        contractPeriod,
+        aadharNumber,
+        panNumber,
+        passportNumber,
+        joinDate,
+      } = req.body;
 
-    // Handle file uploads
-    const files = req.files;
-    let photoUrl = "";
-    const documents = [];
+      // Parse JSON fields
+      console.log("🔍 Backend Debug - Parsing JSON fields...");
+      const parsedPersonalInfo =
+        typeof personalInfo === "string"
+          ? JSON.parse(personalInfo)
+          : personalInfo;
+      console.log("✅ Personal info parsed:", !!parsedPersonalInfo);
 
-    if (files.profilePhoto && files.profilePhoto[0]) {
-      photoUrl = `/uploads/${files.profilePhoto[0].filename}`;
-    }
+      const parsedBankInfo =
+        typeof bankInfo === "string" ? JSON.parse(bankInfo) : bankInfo;
+      console.log("✅ Bank info parsed:", !!parsedBankInfo);
 
-    // Process document uploads
-    const documentTypes = {
-      aadharDocument: "aadhar",
-      panDocument: "pan",
-      tenthMarksheet: "tenth_marksheet",
-      twelfthMarksheet: "twelfth_marksheet",
-      degreeCertificate: "degree_certificate",
-    };
+      const parsedEducationInfo =
+        typeof educationInfo === "string"
+          ? JSON.parse(educationInfo)
+          : educationInfo;
+      console.log("✅ Education info parsed:", !!parsedEducationInfo);
 
-    for (const [fieldName, documentType] of Object.entries(documentTypes)) {
-      if (files[fieldName] && files[fieldName][0]) {
-        const file = files[fieldName][0];
-        documents.push({
-          documentType,
-          fileName: file.originalname,
-          filePath: `/uploads/${file.filename}`,
-          fileSize: file.size,
-          mimeType: file.mimetype,
-          isRequired: documentType === "aadhar" || documentType === "pan",
-        });
+      const parsedTechCertificates =
+        typeof techCertificates === "string"
+          ? JSON.parse(techCertificates)
+          : techCertificates;
+      console.log("✅ Tech certificates parsed:", !!parsedTechCertificates);
+
+      const parsedWorkExperience =
+        typeof workExperience === "string"
+          ? JSON.parse(workExperience)
+          : workExperience;
+      console.log("✅ Work experience parsed:", !!parsedWorkExperience);
+
+      const parsedContractPeriod =
+        typeof contractPeriod === "string"
+          ? JSON.parse(contractPeriod)
+          : contractPeriod;
+      console.log("✅ Contract period parsed:", !!parsedContractPeriod);
+
+      // Handle file uploads
+      const files = req.files;
+      let photoUrl = "";
+      const documents = [];
+
+      // Handle profile photo - can be either file upload or text URL
+      if (files.profilePhoto && files.profilePhoto[0]) {
+        photoUrl = `/uploads/${files.profilePhoto[0].filename}`;
+      } else if (
+        req.body.profilePhoto &&
+        typeof req.body.profilePhoto === "string"
+      ) {
+        // If profilePhoto is sent as text (URL), use it directly
+        photoUrl = req.body.profilePhoto;
       }
-    }
 
-    // Check if form already exists
-    const existingForm = await query(
-      "SELECT id FROM employee_details WHERE user_id = $1",
-      [userId]
-    );
+      // Process document uploads
+      const documentTypes = {
+        aadharDocument: "aadhar",
+        panDocument: "pan",
+        tenthMarksheet: "tenth_marksheet",
+        twelfthMarksheet: "twelfth_marksheet",
+        degreeCertificate: "degree_certificate",
+      };
 
-    if (existingForm.rows.length > 0) {
-      // Update existing form
-      await query(
-        `UPDATE employee_details 
+      for (const [fieldName, documentType] of Object.entries(documentTypes)) {
+        if (files[fieldName] && files[fieldName][0]) {
+          const file = files[fieldName][0];
+          documents.push({
+            documentType,
+            fileName: file.originalname,
+            filePath: `/uploads/${file.filename}`,
+            fileSize: file.size,
+            mimeType: file.mimetype,
+            isRequired: documentType === "aadhar" || documentType === "pan",
+          });
+        }
+      }
+
+      // Check if form already exists
+      console.log("🔍 Backend Debug - Checking if form already exists...");
+      const existingForm = await query(
+        "SELECT id FROM employee_details WHERE user_id = $1",
+        [userId]
+      );
+      console.log(
+        "✅ Form check completed, existing forms:",
+        existingForm.rows.length
+      );
+
+      if (existingForm.rows.length > 0) {
+        // Update existing form
+        console.log("🔍 Backend Debug - Updating existing form...");
+        await query(
+          `UPDATE employee_details 
          SET personal_info = $1, bank_info = $2, education_info = $3, 
              tech_certificates = $4, work_experience = $5, contract_period = $6,
              aadhar_number = $7, pan_number = $8, passport_number = $9,
              join_date = $10, photo_url = $11, updated_at = CURRENT_TIMESTAMP
          WHERE user_id = $12`,
-        [
-          JSON.stringify(parsedPersonalInfo),
-          JSON.stringify(parsedBankInfo),
-          JSON.stringify(parsedEducationInfo),
-          JSON.stringify(parsedTechCertificates),
-          JSON.stringify(parsedWorkExperience),
-          JSON.stringify(parsedContractPeriod),
-          aadharNumber || null,
-          panNumber || null,
-          passportNumber || null,
-          joinDate || null,
-          photoUrl || null,
-          userId,
-        ]
-      );
-    } else {
-      // Insert new form
-      await query(
-        `INSERT INTO employee_details (
+          [
+            JSON.stringify(parsedPersonalInfo),
+            JSON.stringify(parsedBankInfo),
+            JSON.stringify(parsedEducationInfo),
+            JSON.stringify(parsedTechCertificates),
+            JSON.stringify(parsedWorkExperience),
+            JSON.stringify(parsedContractPeriod),
+            aadharNumber || null,
+            panNumber || null,
+            passportNumber || null,
+            joinDate || null,
+            photoUrl || null,
+            userId,
+          ]
+        );
+        console.log("✅ Existing form updated successfully");
+      } else {
+        // Insert new form
+        console.log("🔍 Backend Debug - Inserting new form...");
+        await query(
+          `INSERT INTO employee_details (
           user_id, personal_info, bank_info, education_info, tech_certificates,
           work_experience, contract_period, aadhar_number, pan_number, 
           passport_number, join_date, photo_url
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-        [
-          userId,
-          JSON.stringify(parsedPersonalInfo),
-          JSON.stringify(parsedBankInfo),
-          JSON.stringify(parsedEducationInfo),
-          JSON.stringify(parsedTechCertificates),
-          JSON.stringify(parsedWorkExperience),
-          JSON.stringify(parsedContractPeriod),
-          aadharNumber || null,
-          panNumber || null,
-          passportNumber || null,
-          joinDate || null,
-          photoUrl || null,
-        ]
-      );
-    }
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+          [
+            userId,
+            JSON.stringify(parsedPersonalInfo),
+            JSON.stringify(parsedBankInfo),
+            JSON.stringify(parsedEducationInfo),
+            JSON.stringify(parsedTechCertificates),
+            JSON.stringify(parsedWorkExperience),
+            JSON.stringify(parsedContractPeriod),
+            aadharNumber || null,
+            panNumber || null,
+            passportNumber || null,
+            joinDate || null,
+            photoUrl || null,
+          ]
+        );
+        console.log("✅ New form inserted successfully");
+      }
 
-    // Save documents to database
-    for (const doc of documents) {
-      await query(
-        `INSERT INTO employee_documents (
+      // Save documents to database
+      console.log("🔍 Backend Debug - Saving documents to database...");
+      for (const doc of documents) {
+        await query(
+          `INSERT INTO employee_documents (
           user_id, document_type, file_name, file_path, file_size, mime_type, is_required
-        ) VALUES ($1, $2, $3, $4, $5, $6)`,
-        [
-          userId,
-          doc.documentType,
-          doc.fileName,
-          doc.filePath,
-          doc.fileSize,
-          doc.mimeType,
-          doc.isRequired,
-        ]
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [
+            userId,
+            doc.documentType,
+            doc.fileName,
+            doc.filePath,
+            doc.fileSize,
+            doc.mimeType,
+            doc.isRequired,
+          ]
+        );
+      }
+      console.log("✅ Documents saved successfully, count:", documents.length);
+
+      // Log form submission
+      console.log("🔍 Backend Debug - Logging form submission...");
+      await logAction(
+        userId,
+        "onboarding_form_submitted",
+        {
+          hasPhoto: !!photoUrl,
+          documentsCount: documents.length,
+        },
+        req
       );
+      console.log("✅ Form submission logged successfully");
+
+      // Mark form as submitted
+      console.log("🔍 Backend Debug - Updating users table...");
+      await query(
+        `UPDATE users 
+         SET form_submitted = true, updated_at = CURRENT_TIMESTAMP 
+         WHERE id = $1`,
+        [userId]
+      );
+      console.log("✅ Users table updated successfully");
+
+      // Also update master_employees table
+      console.log("🔍 Backend Debug - Updating master_employees table...");
+      await query(
+        `UPDATE master_employees 
+         SET form_submitted = true, updated_at = CURRENT_TIMESTAMP 
+         WHERE user_id = $1`,
+        [userId]
+      );
+      console.log("✅ Master employees table updated successfully");
+
+      res.json({
+        message: "Onboarding form submitted successfully",
+        photoUrl,
+        documentsCount: documents.length,
+      });
+    } catch (error) {
+      console.error("Submit onboarding form error:", error);
+      console.error("Error details:", {
+        message: error.message,
+        stack: error.stack,
+        code: error.code,
+        detail: error.detail,
+        hint: error.hint,
+      });
+      res.status(500).json({
+        error: "Failed to submit form",
+        details: error.message,
+      });
+    }
+  }
+);
+
+// Check onboarding status
+router.get("/onboarding-status", authenticate, async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const userResult = await query(
+      `SELECT form_submitted, hr_approved, onboarded, status 
+       FROM users WHERE id = $1`,
+      [userId]
+    );
+
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: "User not found" });
     }
 
-    // Log form submission
-    await logAction(userId, "onboarding_form_submitted", {
-      hasPhoto: !!photoUrl,
-      documentsCount: documents.length,
-    }, req);
+    const { form_submitted, hr_approved, onboarded, status } =
+      userResult.rows[0];
 
     res.json({
-      message: "Onboarding form submitted successfully",
-      photoUrl,
-      documentsCount: documents.length,
+      formSubmitted: form_submitted || false,
+      hrApproved: hr_approved || false,
+      onboarded: onboarded || false,
+      status: status,
+      needsForm: !form_submitted,
+      needsApproval: form_submitted && !hr_approved,
+      canAccessAttendance: onboarded && hr_approved,
     });
   } catch (error) {
-    console.error("Submit onboarding form error:", error);
-    res.status(500).json({ error: "Failed to submit form" });
+    console.error("Check onboarding status error:", error);
+    res.status(500).json({ error: "Failed to check onboarding status" });
   }
 });
 
@@ -336,7 +491,14 @@ router.get("/form-requirements", authenticate, async (req, res) => {
     const requirements = {
       personalInfo: {
         required: true,
-        fields: ["firstName", "lastName", "email", "phone", "address", "emergencyContact"],
+        fields: [
+          "firstName",
+          "lastName",
+          "email",
+          "phone",
+          "address",
+          "emergencyContact",
+        ],
       },
       bankInfo: {
         required: true,
@@ -350,9 +512,18 @@ router.get("/form-requirements", authenticate, async (req, res) => {
         profilePhoto: { required: true, types: ["jpg", "jpeg", "png"] },
         aadhar: { required: true, types: ["jpg", "jpeg", "png", "pdf"] },
         pan: { required: true, types: ["jpg", "jpeg", "png", "pdf"] },
-        tenthMarksheet: { required: false, types: ["jpg", "jpeg", "png", "pdf"] },
-        twelfthMarksheet: { required: false, types: ["jpg", "jpeg", "png", "pdf"] },
-        degreeCertificate: { required: false, types: ["jpg", "jpeg", "png", "pdf"] },
+        tenthMarksheet: {
+          required: false,
+          types: ["jpg", "jpeg", "png", "pdf"],
+        },
+        twelfthMarksheet: {
+          required: false,
+          types: ["jpg", "jpeg", "png", "pdf"],
+        },
+        degreeCertificate: {
+          required: false,
+          types: ["jpg", "jpeg", "png", "pdf"],
+        },
       },
     };
 
@@ -401,10 +572,9 @@ router.get("/form-status", authenticate, async (req, res) => {
   try {
     const userId = req.user.id;
 
-    const userResult = await query(
-      "SELECT status FROM users WHERE id = $1",
-      [userId]
-    );
+    const userResult = await query("SELECT status FROM users WHERE id = $1", [
+      userId,
+    ]);
 
     if (userResult.rows.length === 0) {
       return res.status(404).json({ error: "User not found" });

@@ -2,12 +2,8 @@ const express = require("express");
 const bcrypt = require("bcryptjs");
 const { v4: uuidv4 } = require("uuid");
 const { query } = require("../config/database");
-const {
-  authenticate,
-  authorize,
-  logAction,
-} = require("../middleware/auth");
-const { sendEmail } = require("../services/emailService");
+const { authenticate, authorize, logAction } = require("../middleware/auth");
+const { sendOnboardingEmail } = require("../utils/mailer");
 
 const router = express.Router();
 
@@ -15,30 +11,82 @@ const router = express.Router();
 router.use(authenticate);
 router.use(authorize(["hr"]));
 
+// Test email endpoint using new email service
+router.post("/test-email", async (req, res) => {
+  try {
+    const { testEmail } = req.body;
+
+    if (!testEmail) {
+      return res.status(400).json({ error: "Test email address is required" });
+    }
+
+    await sendEmail(
+      testEmail,
+      "Test Email from Employee Onboarding System",
+      `<p>Hello!</p>
+       <p>This is a test email from the Employee Onboarding System.</p>
+       <p>If you received this, the email service is working correctly.</p>
+       <p>Best regards,<br>HR Team</p>`
+    );
+
+    res.json({
+      message: "Test email sent successfully",
+      to: testEmail,
+    });
+  } catch (error) {
+    console.error("Test email error:", error);
+    res.status(500).json({
+      error: "Email test failed",
+      details: error.message,
+    });
+  }
+});
+
+// Check if Employee ID already exists in the system
+router.get("/check-employee-id/:employeeId", async (req, res) => {
+  try {
+    const { employeeId } = req.params;
+
+    // Check in master_employees table only
+    const masterResult = await query(
+      "SELECT id FROM master_employees WHERE employee_id = $1",
+      [employeeId]
+    );
+
+    const exists = masterResult.rows.length > 0;
+
+    res.json({ exists });
+  } catch (error) {
+    console.error("Check Employee ID error:", error);
+    res.status(500).json({ error: "Failed to check Employee ID" });
+  }
+});
+
 // Create new employee
 router.post("/employees", async (req, res) => {
   try {
-    const {
-      name,
-      email,
-      employeeType,
-      department,
-      managerId,
-      joinDate,
-    } = req.body;
+    console.log("🔍 HR Debug - Creating new employee with data:", req.body);
+
+    const { name, email, employeeType, department, managerId, joinDate } =
+      req.body;
 
     // Validate required fields
     if (!name || !email || !employeeType || !department) {
+      console.log("❌ HR Debug - Missing required fields:", {
+        name,
+        email,
+        employeeType,
+        department,
+      });
       return res.status(400).json({
         error: "Name, email, employee type, and department are required",
       });
     }
 
     // Check if email already exists
-    const existingUser = await query(
-      "SELECT id FROM users WHERE email = $1",
-      [email.toLowerCase()]
-    );
+    const existingUser = await query("SELECT id FROM users WHERE email = $1", [
+      email.toLowerCase(),
+    ]);
 
     if (existingUser.rows.length > 0) {
       return res.status(400).json({
@@ -47,14 +95,16 @@ router.post("/employees", async (req, res) => {
     }
 
     // Generate temporary password
-    const tempPassword = Math.random().toString(36).slice(-8) + Math.random().toString(36).slice(-4).toUpperCase();
+    const tempPassword =
+      Math.random().toString(36).slice(-8) +
+      Math.random().toString(36).slice(-4).toUpperCase();
     const hashedPassword = await bcrypt.hash(tempPassword, 12);
 
-    // Create user
+    // Create user with 'pending' status - they need to fill out the form first
     const userResult = await query(
-      `INSERT INTO users (name, email, password_hash, role, employee_type, department, manager_id, join_date, status, is_first_login)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-       RETURNING id, name, email, employee_type, department, status`,
+      `INSERT INTO users (name, email, password_hash, role, employee_type, department, manager_id, join_date, status, is_first_login, form_submitted, onboarded)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+       RETURNING id, name, email, employee_type, department, status, manager_id`,
       [
         name,
         email.toLowerCase(),
@@ -64,84 +114,126 @@ router.post("/employees", async (req, res) => {
         department,
         managerId || null,
         joinDate || null,
-        "pending",
+        "pending", // Set to pending - they need to fill out form first
         true,
+        false, // form_submitted = false - they haven't submitted form yet
+        false, // onboarded = false - they need to complete onboarding first
       ]
     );
 
     const newUser = userResult.rows[0];
 
-    // Add to master_employees table
-    await query(
-      `INSERT INTO master_employees (user_id, name, email, employee_type, role, status, department, join_date, manager_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-      [
-        newUser.id,
-        newUser.name,
-        newUser.email,
-        newUser.employee_type,
-        "employee",
-        newUser.status,
-        newUser.department,
-        joinDate || null,
-        managerId || null,
-      ]
-    );
+    // Note: Employee is NOT automatically added to master_employees table
+    // They will be added only after HR assigns a manager and explicitly adds them
 
-    // Send email with credentials
+    // Send onboarding email with credentials
+    let emailSent = false;
+    let emailError = null;
+
     try {
-      await sendEmail({
-        to: newUser.email,
-        subject: "Welcome to Company - Your Login Credentials",
-        html: `
-          <h2>Welcome to Company!</h2>
-          <p>Hello ${newUser.name},</p>
-          <p>Your account has been created successfully. Please use the following credentials to log in:</p>
-          <p><strong>Email:</strong> ${newUser.email}</p>
-          <p><strong>Temporary Password:</strong> ${tempPassword}</p>
-          <p><strong>Important:</strong> You will be required to change your password on your first login.</p>
-          <p>Please complete your onboarding form and submit it for approval.</p>
-          <p>Best regards,<br>HR Team</p>
-        `,
-      });
-    } catch (emailError) {
-      console.error("Failed to send email:", emailError);
-      // Don't fail the request if email fails
+      const emailResult = await sendOnboardingEmail(
+        newUser.email,
+        tempPassword
+      );
+      if (emailResult.success) {
+        console.log("✅ Onboarding email sent successfully to:", newUser.email);
+        emailSent = true;
+      } else {
+        console.error("❌ Failed to send onboarding email:", emailResult.error);
+        emailError = emailResult.error;
+      }
+    } catch (err) {
+      console.error("❌ Failed to send onboarding email:", err);
+      emailError = err.message;
     }
 
     // Log action
-    await logAction(req.user.id, "employee_created", {
-      employeeId: newUser.id,
-      employeeEmail: newUser.email,
-      employeeType: newUser.employee_type,
-      department: newUser.department,
-    }, req);
+    await logAction(
+      req.user.id,
+      "employee_created_pending",
+      {
+        employeeId: newUser.id,
+        employeeEmail: newUser.email,
+        employeeType: newUser.employee_type,
+        department: newUser.department,
+        status: "pending",
+        emailSent: emailSent,
+        emailError: emailError ? emailError.message : null,
+      },
+      req
+    );
 
-    res.status(201).json({
-      message: "Employee created successfully",
-      employee: newUser,
-      tempPassword,
-    });
+    // Provide appropriate response based on email status
+    if (emailSent) {
+      res.json({
+        message:
+          "Employee created successfully! Credentials sent via email. Employee needs to complete onboarding form.",
+        employee: newUser,
+        note: "Employee will be added to master table after completing onboarding form and manager assignment",
+        emailStatus: "sent",
+      });
+    } else {
+      res.json({
+        message:
+          "Employee created successfully! However, email delivery failed.",
+        employee: newUser,
+        note: "Employee will be added to master table after completing onboarding form and manager assignment. Please check email configuration.",
+        emailStatus: "failed",
+        emailError: emailError ? emailError.message : "Unknown error",
+      });
+    }
   } catch (error) {
-    console.error("Create employee error:", error);
-    res.status(500).json({ error: "Failed to create employee" });
+    console.error("❌ HR Debug - Create employee error:", error);
+    console.error("❌ HR Debug - Error details:", {
+      message: error.message,
+      code: error.code,
+      stack: error.stack,
+    });
+
+    // Provide more specific error messages
+    if (error.code === "23505") {
+      // Unique constraint violation
+      res.status(400).json({
+        error: "Employee with this email already exists",
+      });
+    } else if (error.code === "23503") {
+      // Foreign key constraint violation
+      res.status(400).json({
+        error: "Invalid manager ID or department",
+      });
+    } else {
+      res.status(500).json({
+        error: "Failed to create employee. Please try again.",
+      });
+    }
   }
 });
 
 // Get all employees
 router.get("/employees", async (req, res) => {
   try {
-    const { status, department, search } = req.query;
+    console.log("🔍 HR Debug - Fetching employees...");
+    const { status, department, employeeType, showDeleted, search } = req.query;
 
     let queryText = `
       SELECT u.id, u.name, u.email, u.employee_type, u.department, u.status, u.created_at,
-             u.manager_id, m.name as manager_name
+             u.manager_id, m.name as manager_name,
+             u.form_submitted, u.hr_approved, u.onboarded
       FROM users u
       LEFT JOIN users m ON u.manager_id = m.id
       WHERE u.role = 'employee'
     `;
     let queryParams = [];
     let paramCount = 0;
+
+    // Handle deleted employees filter
+    if (showDeleted === "true") {
+      // Show all employees including deleted ones
+      queryText += ` AND u.status = 'deleted'`;
+    } else {
+      // By default, exclude deleted employees
+      queryText += ` AND u.status != 'deleted'`;
+    }
 
     if (status) {
       paramCount++;
@@ -155,6 +247,12 @@ router.get("/employees", async (req, res) => {
       queryParams.push(department);
     }
 
+    if (employeeType) {
+      paramCount++;
+      queryText += ` AND u.employee_type = $${paramCount}`;
+      queryParams.push(employeeType);
+    }
+
     if (search) {
       paramCount++;
       queryText += ` AND (u.name ILIKE $${paramCount} OR u.email ILIKE $${paramCount})`;
@@ -163,15 +261,46 @@ router.get("/employees", async (req, res) => {
 
     queryText += " ORDER BY u.created_at DESC";
 
+    console.log("🔍 HR Debug - Final query:", queryText);
+    console.log("🔍 HR Debug - Query params:", queryParams);
+
     const result = await query(queryText, queryParams);
+    console.log("🔍 HR Debug - Query result rows:", result.rows.length);
 
     res.json({
       employees: result.rows,
       total: result.rows.length,
     });
   } catch (error) {
-    console.error("Get employees error:", error);
+    console.error("❌ HR Debug - Get employees error:", error);
+    console.error("❌ HR Debug - Error stack:", error.stack);
     res.status(500).json({ error: "Failed to fetch employees" });
+  }
+});
+
+// Get all managers (users who can be assigned as managers)
+router.get("/managers", async (req, res) => {
+  try {
+    // Get users who are HR or have been assigned as managers, and are active
+    const result = await query(`
+      SELECT DISTINCT u.id, u.name, u.email, u.role, u.employee_type, u.department
+      FROM users u
+      WHERE (u.role = 'hr' OR u.id IN (
+        SELECT DISTINCT manager_id 
+        FROM users 
+        WHERE manager_id IS NOT NULL
+      )) 
+      AND u.status IN ('approved', 'onboarded', 'active')
+      ORDER BY u.name
+    `);
+
+    res.json({
+      managers: result.rows,
+      total: result.rows.length,
+    });
+  } catch (error) {
+    console.error("Get managers error:", error);
+    res.status(500).json({ error: "Failed to fetch managers" });
   }
 });
 
@@ -208,9 +337,9 @@ router.patch("/employees/:id/status", async (req, res) => {
     const { id } = req.params;
     const { status } = req.body;
 
-    if (!["pending", "active", "rejected"].includes(status)) {
+    if (!["pending", "approved", "rejected"].includes(status)) {
       return res.status(400).json({
-        error: "Invalid status. Must be pending, active, or rejected",
+        error: "Invalid status. Must be pending, approved, or rejected",
       });
     }
 
@@ -238,46 +367,49 @@ router.patch("/employees/:id/status", async (req, res) => {
     const employee = result.rows[0];
 
     // Send email notification
-    if (status === "active") {
+    if (status === "approved") {
       try {
-        await sendEmail({
-          to: employee.email,
-          subject: "Account Approved - Welcome to Company!",
-          html: `
-            <h2>Account Approved!</h2>
-            <p>Hello ${employee.name},</p>
-            <p>Your account has been approved! You can now access the attendance portal.</p>
-            <p>Please log in with your credentials and start marking your attendance.</p>
-            <p>Best regards,<br>HR Team</p>
-          `,
-        });
+        await sendEmail(
+          employee.email,
+          "Account Approved - Welcome to Nxzen!",
+          `<h2>Account Approved!</h2>
+           <p>Hello ${employee.name},</p>
+           <p>Your account has been approved! You can now access the attendance portal.</p>
+           <p>Please log in with your credentials and start marking your attendance.</p>
+           <p>Best regards,<br>HR Team</p>`
+        );
+        console.log("✅ Approval email sent successfully to:", employee.email);
       } catch (emailError) {
-        console.error("Failed to send approval email:", emailError);
+        console.error("❌ Failed to send approval email:", emailError);
       }
     } else if (status === "rejected") {
       try {
-        await sendEmail({
-          to: employee.email,
-          subject: "Account Status Update",
-          html: `
-            <h2>Account Status Update</h2>
-            <p>Hello ${employee.name},</p>
-            <p>Your account has been rejected. Please contact HR for more information.</p>
-            <p>Best regards,<br>HR Team</p>
-          `,
-        });
+        await sendEmail(
+          employee.email,
+          "Account Status Update",
+          `<h2>Account Status Update</h2>
+           <p>Hello ${employee.name},</p>
+           <p>Your account has been rejected. Please contact HR for more information.</p>
+           <p>Best regards,<br>HR Team</p>`
+        );
+        console.log("✅ Rejection email sent successfully to:", employee.email);
       } catch (emailError) {
-        console.error("Failed to send rejection email:", emailError);
+        console.error("❌ Failed to send rejection email:", emailError);
       }
     }
 
     // Log action
-    await logAction(req.user.id, "employee_status_updated", {
-      employeeId: id,
-      employeeName: employee.name,
-      oldStatus: employee.status,
-      newStatus: status,
-    }, req);
+    await logAction(
+      req.user.id,
+      "employee_status_updated",
+      {
+        employeeId: id,
+        employeeName: employee.name,
+        oldStatus: employee.status,
+        newStatus: status,
+      },
+      req
+    );
 
     res.json({
       message: "Employee status updated successfully",
@@ -331,11 +463,16 @@ router.patch("/employees/:id/manager", async (req, res) => {
     );
 
     // Log action
-    await logAction(req.user.id, "employee_manager_updated", {
-      employeeId: id,
-      employeeName: result.rows[0].name,
-      managerId: managerId || null,
-    }, req);
+    await logAction(
+      req.user.id,
+      "employee_manager_updated",
+      {
+        employeeId: id,
+        employeeName: result.rows[0].name,
+        managerId: managerId || null,
+      },
+      req
+    );
 
     res.json({
       message: "Employee manager updated successfully",
@@ -347,8 +484,95 @@ router.patch("/employees/:id/manager", async (req, res) => {
   }
 });
 
-// Delete employee
+// Delete employee (soft delete by default)
 router.delete("/employees/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { type = "soft" } = req.query; // "soft" or "hard"
+
+    // Check if employee exists
+    const employeeResult = await query(
+      "SELECT id, name, email FROM users WHERE id = $1 AND role = 'employee'",
+      [id]
+    );
+
+    if (employeeResult.rows.length === 0) {
+      return res.status(404).json({ error: "Employee not found" });
+    }
+
+    const employee = employeeResult.rows[0];
+
+    if (type === "hard") {
+      // Hard delete - permanently remove from database
+      console.log(
+        `🗑️ Hard deleting employee: ${employee.name} (${employee.email})`
+      );
+
+      // Delete from audit_logs first (no CASCADE constraint)
+      await query("DELETE FROM audit_logs WHERE user_id = $1", [id]);
+
+      // Delete from master_employees first
+      await query("DELETE FROM master_employees WHERE user_id = $1", [id]);
+
+      // Delete from users table
+      await query("DELETE FROM users WHERE id = $1", [id]);
+
+      // Note: Related data (forms, documents, attendance) will be deleted via CASCADE constraints
+
+      console.log(`✅ Employee hard deleted successfully: ${employee.name}`);
+    } else {
+      // Soft delete - mark as deleted but keep data
+      console.log(
+        `🗑️ Soft deleting employee: ${employee.name} (${employee.email})`
+      );
+
+      // Update users table to mark as deleted
+      await query(
+        `UPDATE users 
+         SET status = 'deleted', updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1`,
+        [id]
+      );
+
+      // Update master_employees table to mark as deleted
+      await query(
+        `UPDATE master_employees 
+         SET status = 'deleted', updated_at = CURRENT_TIMESTAMP
+         WHERE user_id = $1`,
+        [id]
+      );
+
+      console.log(`✅ Employee soft deleted successfully: ${employee.name}`);
+    }
+
+    // Log action
+    await logAction(
+      req.user.id,
+      type === "hard" ? "employee_hard_deleted" : "employee_soft_deleted",
+      {
+        employeeId: id,
+        employeeName: employee.name,
+        employeeEmail: employee.email,
+        deleteType: type,
+      },
+      req
+    );
+
+    res.json({
+      message: `Employee ${
+        type === "hard" ? "permanently deleted" : "deleted"
+      } successfully`,
+      deletedEmployee: employee,
+      deleteType: type,
+    });
+  } catch (error) {
+    console.error("Delete employee error:", error);
+    res.status(500).json({ error: "Failed to delete employee" });
+  }
+});
+
+// Hard delete employee (permanently remove)
+router.delete("/employees/:id/permanent", async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -364,26 +588,107 @@ router.delete("/employees/:id", async (req, res) => {
 
     const employee = employeeResult.rows[0];
 
+    console.log(
+      `🗑️ Hard deleting employee: ${employee.name} (${employee.email})`
+    );
+
+    // Delete from audit_logs first (no CASCADE constraint)
+    await query("DELETE FROM audit_logs WHERE user_id = $1", [id]);
+
     // Delete from master_employees first
     await query("DELETE FROM master_employees WHERE user_id = $1", [id]);
 
     // Delete user
     await query("DELETE FROM users WHERE id = $1", [id]);
 
+    // Note: Related data (forms, documents, attendance) will be deleted via CASCADE constraints
+
     // Log action
-    await logAction(req.user.id, "employee_deleted", {
-      employeeId: id,
-      employeeName: employee.name,
-      employeeEmail: employee.email,
-    }, req);
+    await logAction(
+      req.user.id,
+      "employee_hard_deleted",
+      {
+        employeeId: id,
+        employeeName: employee.name,
+        employeeEmail: employee.email,
+        deleteType: "hard",
+      },
+      req
+    );
+
+    console.log(`✅ Employee hard deleted successfully: ${employee.name}`);
 
     res.json({
-      message: "Employee deleted successfully",
+      message: "Employee permanently deleted successfully",
       deletedEmployee: employee,
+      deleteType: "hard",
     });
   } catch (error) {
-    console.error("Delete employee error:", error);
-    res.status(500).json({ error: "Failed to delete employee" });
+    console.error("Hard delete employee error:", error);
+    res.status(500).json({ error: "Failed to permanently delete employee" });
+  }
+});
+
+// Restore soft-deleted employee
+router.patch("/employees/:id/restore", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Check if employee exists and is deleted
+    const employeeResult = await query(
+      "SELECT id, name, email, status FROM users WHERE id = $1 AND role = 'employee'",
+      [id]
+    );
+
+    if (employeeResult.rows.length === 0) {
+      return res.status(404).json({ error: "Employee not found" });
+    }
+
+    const employee = employeeResult.rows[0];
+
+    if (employee.status !== "deleted") {
+      return res.status(400).json({ error: "Employee is not deleted" });
+    }
+
+    console.log(`🔄 Restoring employee: ${employee.name} (${employee.email})`);
+
+    // Restore user status to pending
+    await query(
+      `UPDATE users 
+       SET status = 'pending', updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1`,
+      [id]
+    );
+
+    // Restore master_employees status to active
+    await query(
+      `UPDATE master_employees 
+       SET status = 'active', updated_at = CURRENT_TIMESTAMP
+       WHERE user_id = $1`,
+      [id]
+    );
+
+    // Log action
+    await logAction(
+      req.user.id,
+      "employee_restored",
+      {
+        employeeId: id,
+        employeeName: employee.name,
+        employeeEmail: employee.email,
+      },
+      req
+    );
+
+    console.log(`✅ Employee restored successfully: ${employee.name}`);
+
+    res.json({
+      message: "Employee restored successfully",
+      restoredEmployee: { ...employee, status: "pending" },
+    });
+  } catch (error) {
+    console.error("Restore employee error:", error);
+    res.status(500).json({ error: "Failed to restore employee" });
   }
 });
 
@@ -405,7 +710,9 @@ router.post("/employees/:id/resend-credentials", async (req, res) => {
     const employee = employeeResult.rows[0];
 
     // Generate new temporary password
-    const tempPassword = Math.random().toString(36).slice(-8) + Math.random().toString(36).slice(-4).toUpperCase();
+    const tempPassword =
+      Math.random().toString(36).slice(-8) +
+      Math.random().toString(36).slice(-4).toUpperCase();
     const hashedPassword = await bcrypt.hash(tempPassword, 12);
 
     // Update password and reset first login flag
@@ -418,32 +725,36 @@ router.post("/employees/:id/resend-credentials", async (req, res) => {
 
     // Send email with new credentials
     try {
-      await sendEmail({
-        to: employee.email,
-        subject: "Updated Login Credentials - Company",
-        html: `
-          <h2>Updated Login Credentials</h2>
-          <p>Hello ${employee.name},</p>
-          <p>Your login credentials have been updated. Please use the following:</p>
-          <p><strong>Email:</strong> ${employee.email}</p>
-          <p><strong>New Temporary Password:</strong> ${tempPassword}</p>
-          <p><strong>Important:</strong> You will be required to change your password on your next login.</p>
-          <p>Best regards,<br>HR Team</p>
-        `,
-      });
+      await sendEmail(
+        employee.email,
+        "Updated Login Credentials - Nxzen",
+        `<h2>Updated Login Credentials</h2>
+         <p>Hello ${employee.name},</p>
+         <p>Your login credentials have been updated. Please use the following:</p>
+         <p><strong>Email:</strong> ${employee.email}</p>
+         <p><strong>New Temporary Password:</strong> ${tempPassword}</p>
+         <p><strong>Important:</strong> You will be required to change your password on your next login.</p>
+         <p>Best regards,<br>HR Team</p>`
+      );
+      console.log("✅ Credentials email sent successfully to:", employee.email);
     } catch (emailError) {
-      console.error("Failed to send email:", emailError);
+      console.error("❌ Failed to send credentials email:", emailError);
       return res.status(500).json({
         error: "Failed to send email with new credentials",
       });
     }
 
     // Log action
-    await logAction(req.user.id, "credentials_resent", {
-      employeeId: id,
-      employeeName: employee.name,
-      employeeEmail: employee.email,
-    }, req);
+    await logAction(
+      req.user.id,
+      "credentials_resent",
+      {
+        employeeId: id,
+        employeeName: employee.name,
+        employeeEmail: employee.email,
+      },
+      req
+    );
 
     res.json({
       message: "Credentials resent successfully",
@@ -455,24 +766,342 @@ router.post("/employees/:id/resend-credentials", async (req, res) => {
   }
 });
 
+// Approve employee onboarding
+router.put("/employees/:id/onboard", authenticate, async (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log(
+      "🔍 HR Onboarding Debug - Starting onboarding approval for employee:",
+      id
+    );
+    console.log("🔍 HR Onboarding Debug - HR User ID:", req.user?.id);
+    console.log("🔍 HR Onboarding Debug - HR User Role:", req.user?.role);
+
+    // Verify HR user
+    if (!req.user || req.user.role !== "hr") {
+      console.log("❌ HR Onboarding Debug - Unauthorized access attempt");
+      return res
+        .status(403)
+        .json({ error: "Only HR users can approve onboarding" });
+    }
+
+    // Check if employee exists and has submitted form
+    const employeeResult = await query(
+      `SELECT u.id, u.name, u.email, u.form_submitted, u.onboarded, u.status
+       FROM users u
+       WHERE u.id = $1 AND u.role = 'employee'`,
+      [id]
+    );
+
+    console.log(
+      "🔍 HR Onboarding Debug - Employee query result:",
+      employeeResult.rows
+    );
+
+    if (employeeResult.rows.length === 0) {
+      console.log("❌ HR Onboarding Debug - Employee not found");
+      return res.status(404).json({ error: "Employee not found" });
+    }
+
+    const employee = employeeResult.rows[0];
+    console.log("🔍 HR Onboarding Debug - Employee data:", employee);
+
+    if (!employee.form_submitted) {
+      console.log("❌ HR Onboarding Debug - Employee has not submitted form");
+      return res.status(400).json({
+        error: "Employee has not submitted onboarding form yet",
+      });
+    }
+
+    if (employee.onboarded) {
+      console.log("❌ HR Onboarding Debug - Employee already onboarded");
+      return res.status(400).json({
+        error: "Employee is already onboarded",
+      });
+    }
+
+    console.log(
+      "✅ HR Onboarding Debug - All checks passed, proceeding with onboarding..."
+    );
+
+    // Update employee as approved by HR
+    console.log("🔍 HR Onboarding Debug - Updating users table...");
+    await query(
+      `UPDATE users 
+       SET hr_approved = true, onboarded = true, status = 'approved', updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1`,
+      [id]
+    );
+    console.log("✅ HR Onboarding Debug - Users table updated successfully");
+
+    // Update master_employees table
+    console.log("🔍 HR Onboarding Debug - Updating master_employees table...");
+    await query(
+      `UPDATE master_employees 
+       SET onboarded = true, status = 'approved', updated_at = CURRENT_TIMESTAMP
+       WHERE user_id = $1`,
+      [id]
+    );
+    console.log(
+      "✅ HR Onboarding Debug - Master employees table updated successfully"
+    );
+
+    // Send onboarding approval email
+    try {
+      await sendEmail(
+        employee.email,
+        "Onboarding Approved - Welcome to Nxzen!",
+        `<h2>Onboarding Approved!</h2>
+         <p>Hello ${employee.name},</p>
+         <p>Congratulations! Your onboarding has been approved by HR.</p>
+         <p>You can now access the Attendance Portal and start marking your daily attendance.</p>
+         <p>Please log in with your credentials and navigate to the Attendance Portal.</p>
+         <p>Best regards,<br>HR Team</p>`
+      );
+      console.log(
+        "✅ Onboarding approval email sent successfully to:",
+        employee.email
+      );
+    } catch (emailError) {
+      console.error("❌ Failed to send onboarding approval email:", emailError);
+      // Don't fail the request if email fails
+    }
+
+    // Log action
+    try {
+      await logAction(
+        req.user.id,
+        "employee_onboarded",
+        {
+          employeeId: id,
+          employeeName: employee.name,
+          employeeEmail: employee.email,
+        },
+        req
+      );
+      console.log("✅ HR Onboarding Debug - Action logged successfully");
+    } catch (logError) {
+      console.error("❌ HR Onboarding Debug - Failed to log action:", logError);
+      // Don't fail the request if logging fails
+    }
+
+    console.log(
+      "✅ HR Onboarding Debug - Onboarding approval completed successfully"
+    );
+    res.json({
+      message: "Employee onboarding approved successfully",
+      employee: { ...employee, onboarded: true, status: "approved" },
+    });
+  } catch (error) {
+    console.error("Approve onboarding error:", error);
+    res.status(500).json({ error: "Failed to approve onboarding" });
+  }
+});
+
+// Reject employee onboarding
+router.put(
+  "/employees/:id/reject-onboarding",
+  authenticate,
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      console.log(
+        "🔍 HR Onboarding Debug - Starting onboarding rejection for employee:",
+        id
+      );
+      console.log("🔍 HR Onboarding Debug - HR User ID:", req.user?.id);
+      console.log("🔍 HR Onboarding Debug - HR User Role:", req.user?.role);
+
+      // Check if user is HR
+      if (req.user?.role !== "hr") {
+        console.log("❌ HR Onboarding Debug - Unauthorized access attempt");
+        return res
+          .status(403)
+          .json({ error: "Only HR users can reject onboarding" });
+      }
+
+      // Get employee details
+      const result = await query(
+        `SELECT u.id, u.name, u.email, u.form_submitted, u.onboarded, u.status
+       FROM users u
+       WHERE u.id = $1 AND u.role = 'employee'`,
+        [id]
+      );
+
+      if (result.rows.length === 0) {
+        console.log("❌ HR Onboarding Debug - Employee not found");
+        return res.status(404).json({ error: "Employee not found" });
+      }
+
+      const employee = result.rows[0];
+      console.log("🔍 HR Onboarding Debug - Employee data:", employee);
+
+      if (!employee.form_submitted) {
+        console.log("❌ HR Onboarding Debug - Employee has not submitted form");
+        return res.status(400).json({
+          error: "Employee has not submitted onboarding form yet",
+        });
+      }
+
+      if (employee.onboarded) {
+        console.log("❌ HR Onboarding Debug - Employee already onboarded");
+        return res.status(400).json({
+          error: "Employee is already onboarded",
+        });
+      }
+
+      console.log(
+        "✅ HR Onboarding Debug - All checks passed, proceeding with onboarding rejection..."
+      );
+
+      // Update employee as rejected
+      console.log("🔍 HR Onboarding Debug - Updating users table...");
+      await query(
+        `UPDATE users 
+       SET status = 'rejected', updated_at = CURRENT_TIMESTAMP
+       WHERE id = $1`,
+        [id]
+      );
+      console.log("✅ HR Onboarding Debug - Users table updated successfully");
+
+      // Update master_employees table if exists
+      console.log(
+        "🔍 HR Onboarding Debug - Updating master_employees table..."
+      );
+      await query(
+        `UPDATE master_employees 
+       SET status = 'rejected', updated_at = CURRENT_TIMESTAMP
+       WHERE user_id = $1`,
+        [id]
+      );
+      console.log(
+        "✅ HR Onboarding Debug - Master employees table updated successfully"
+      );
+
+      // Send onboarding rejection email
+      try {
+        const emailError = await sendEmail(
+          employee.email,
+          "Onboarding Rejected - Next Steps",
+          `<h2>Onboarding Status Update</h2>
+         <p>Dear ${employee.name},</p>
+         <p>Your onboarding application has been reviewed and unfortunately, it has been rejected by HR.</p>
+         <p>Please contact HR for more details about the rejection and what steps you can take next.</p>
+         <p>Best regards,<br>HR Team</p>`
+        );
+        console.log(
+          "✅ Onboarding rejection email sent successfully to:",
+          employee.email
+        );
+      } catch (emailError) {
+        console.error(
+          "❌ Failed to send onboarding rejection email:",
+          emailError
+        );
+      }
+
+      // Log the action
+      try {
+        await query(
+          `INSERT INTO audit_logs (user_id, action, details, created_at)
+         VALUES ($1, $2, $3, CURRENT_TIMESTAMP)`,
+          [
+            id,
+            "onboarding_rejected",
+            `Onboarding rejected by HR user ${req.user.id}`,
+          ]
+        );
+        console.log("✅ HR Onboarding Debug - Action logged successfully");
+      } catch (logError) {
+        console.error(
+          "❌ HR Onboarding Debug - Failed to log action:",
+          logError
+        );
+      }
+
+      console.log(
+        "✅ HR Onboarding Debug - Onboarding rejection completed successfully"
+      );
+
+      res.json({
+        message: "Employee onboarding rejected successfully",
+        employee: { ...employee, status: "rejected" },
+      });
+    } catch (error) {
+      console.error("Reject onboarding error:", error);
+      res.status(500).json({ error: "Failed to reject onboarding" });
+    }
+  }
+);
+
+// Get employee onboarding status for HR
+router.get("/employees/:id/onboarding-status", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const result = await query(
+      `SELECT u.id, u.name, u.email, u.form_submitted, u.onboarded, u.status, u.employee_type, u.department,
+               ed.id as form_id, ed.created_at as form_created_at, ed.updated_at as form_updated_at
+        FROM users u
+        LEFT JOIN employee_details ed ON u.id = ed.user_id
+        WHERE u.id = $1 AND u.role = 'employee'`,
+      [id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Employee not found" });
+    }
+
+    const employee = result.rows[0];
+
+    res.json({
+      employee: {
+        id: employee.id,
+        name: employee.name,
+        email: employee.email,
+        formSubmitted: employee.form_submitted || false,
+        onboarded: employee.onboarded || false,
+        status: employee.status,
+        employeeType: employee.employee_type,
+        department: employee.department,
+        hasForm: !!employee.form_id,
+        formCreatedAt: employee.form_created_at,
+        formUpdatedAt: employee.form_updated_at,
+      },
+    });
+  } catch (error) {
+    console.error("Get onboarding status error:", error);
+    res.status(500).json({ error: "Failed to get onboarding status" });
+  }
+});
+
 // Get employee onboarding forms
 router.get("/employee-forms", async (req, res) => {
   try {
-    const { status, search } = req.query;
+    const { status, search, page = 1, limit = 10 } = req.query;
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+    const offset = (pageNum - 1) * limitNum;
 
     let queryText = `
-      SELECT u.id, u.name, u.email, u.employee_type, u.department, u.status, u.created_at,
-             ed.id as form_id, ed.created_at as form_created_at, ed.updated_at as form_updated_at
+      SELECT u.id, u.name, u.email, u.employee_type, u.department, u.status as user_status, u.created_at,
+             ed.id as form_id, ed.status as form_status, ed.created_at as form_created_at, ed.updated_at as form_updated_at,
+             COALESCE(doc_counts.document_count, 0) as document_count
       FROM users u
-      LEFT JOIN employee_details ed ON u.id = ed.user_id
-      WHERE u.role = 'employee'
+      INNER JOIN employee_details ed ON u.id = ed.user_id
+      LEFT JOIN (
+        SELECT user_id, COUNT(*) as document_count
+        FROM employee_documents
+        GROUP BY user_id
+      ) doc_counts ON u.id = doc_counts.user_id
+      WHERE u.role = 'employee' AND ed.id IS NOT NULL
     `;
     let queryParams = [];
     let paramCount = 0;
 
     if (status) {
       paramCount++;
-      queryText += ` AND u.status = $${paramCount}`;
+      queryText += ` AND ed.status = $${paramCount}`;
       queryParams.push(status);
     }
 
@@ -482,13 +1111,46 @@ router.get("/employee-forms", async (req, res) => {
       queryParams.push(`%${search}%`);
     }
 
-    queryText += " ORDER BY u.created_at DESC";
+    // Get total count first
+    let countQuery = `
+      SELECT COUNT(*) 
+      FROM users u
+      INNER JOIN employee_details ed ON u.id = ed.user_id
+      WHERE u.role = 'employee' AND ed.id IS NOT NULL
+    `;
+
+    if (status) {
+      countQuery += ` AND ed.status = $1`;
+    }
+    if (search) {
+      countQuery += status
+        ? ` AND (u.name ILIKE $2 OR u.email ILIKE $2)`
+        : ` AND (u.name ILIKE $1 OR u.email ILIKE $1)`;
+    }
+
+    const countResult = await query(countQuery, queryParams);
+    const total = parseInt(countResult.rows[0].count);
+
+    // Add pagination
+    queryText +=
+      " ORDER BY u.created_at DESC LIMIT $" +
+      (paramCount + 1) +
+      " OFFSET $" +
+      (paramCount + 2);
+    queryParams.push(limitNum, offset);
 
     const result = await query(queryText, queryParams);
 
+    const pages = Math.ceil(total / limitNum);
+
     res.json({
       forms: result.rows,
-      total: result.rows.length,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total: total,
+        pages: pages,
+      },
     });
   } catch (error) {
     console.error("Get employee forms error:", error);
@@ -501,7 +1163,8 @@ router.get("/employee-forms/:id", async (req, res) => {
   try {
     const { id } = req.params;
 
-    const formResult = await query(
+    // Try to find form by form_id first, then by user_id
+    let formResult = await query(
       `SELECT ed.*, u.name, u.email, u.employee_type, u.department, u.status
        FROM employee_details ed
        JOIN users u ON ed.user_id = u.id
@@ -509,11 +1172,42 @@ router.get("/employee-forms/:id", async (req, res) => {
       [id]
     );
 
+    // If not found by form_id, try by user_id
+    if (formResult.rows.length === 0) {
+      formResult = await query(
+        `SELECT ed.*, u.name, u.email, u.employee_type, u.department, u.status
+         FROM employee_details ed
+         JOIN users u ON ed.user_id = u.id
+         WHERE u.id = $1`,
+        [id]
+      );
+    }
+
     if (formResult.rows.length === 0) {
       return res.status(404).json({ error: "Form not found" });
     }
 
     const form = formResult.rows[0];
+
+    // Get uploaded documents for this employee
+    const documentsResult = await query(
+      `SELECT document_type, file_name, file_path, file_size, mime_type, is_required, created_at
+       FROM employee_documents 
+       WHERE user_id = $1 
+       ORDER BY created_at ASC`,
+      [form.user_id]
+    );
+
+    const documents = documentsResult.rows.map((doc) => ({
+      documentType: doc.document_type,
+      fileName: doc.file_name,
+      filePath: doc.file_path,
+      fileSize: doc.file_size,
+      mimeType: doc.mime_type,
+      isRequired: doc.is_required,
+      createdAt: doc.created_at,
+      downloadUrl: `/uploads/${doc.file_path.split("/").pop()}`, // Extract filename from path
+    }));
 
     // Transform snake_case to camelCase for frontend
     const transformedForm = {
@@ -532,6 +1226,7 @@ router.get("/employee-forms/:id", async (req, res) => {
       joinDate: form.join_date || "",
       createdAt: form.created_at,
       updatedAt: form.updated_at,
+      documents: documents, // Include uploaded documents
       employee: {
         name: form.name,
         email: form.email,
@@ -570,8 +1265,16 @@ router.put("/employee-forms/:id", async (req, res) => {
     let paramCount = 0;
 
     const allowedFields = [
-      "personal_info", "bank_info", "aadhar_number", "pan_number", "passport_number",
-      "education_info", "tech_certificates", "work_experience", "contract_period", "join_date"
+      "personal_info",
+      "bank_info",
+      "aadhar_number",
+      "pan_number",
+      "passport_number",
+      "education_info",
+      "tech_certificates",
+      "work_experience",
+      "contract_period",
+      "join_date",
     ];
 
     for (const field of allowedFields) {
@@ -594,20 +1297,88 @@ router.put("/employee-forms/:id", async (req, res) => {
 
     // Update the form
     await query(
-      `UPDATE employee_details SET ${updates.join(", ")} WHERE id = $${paramCount}`,
+      `UPDATE employee_details SET ${updates.join(
+        ", "
+      )} WHERE id = $${paramCount}`,
       params
     );
 
     // Log action
-    await logAction(req.user.id, "employee_form_updated", {
-      formId: id,
-      updatedFields: Object.keys(updateData),
-    }, req);
+    await logAction(
+      req.user.id,
+      "employee_form_updated",
+      {
+        formId: id,
+        updatedFields: Object.keys(updateData),
+      },
+      req
+    );
 
     res.json({ message: "Employee form updated successfully" });
   } catch (error) {
     console.error("Update employee form error:", error);
     res.status(500).json({ error: "Failed to update employee form" });
+  }
+});
+
+// Update employee form status
+router.patch("/employee-forms/:id/status", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, approved_by } = req.body;
+
+    // Check if form exists
+    const formExists = await query(
+      "SELECT id, user_id FROM employee_details WHERE id = $1",
+      [id]
+    );
+
+    if (formExists.rows.length === 0) {
+      return res.status(404).json({ error: "Form not found" });
+    }
+
+    const { user_id } = formExists.rows[0];
+
+    // Update form status
+    await query(
+      "UPDATE employee_details SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
+      [status, id]
+    );
+
+    // Update user status based on form status
+    if (status === "approved") {
+      await query(
+        "UPDATE users SET status = 'approved', updated_at = CURRENT_TIMESTAMP WHERE id = $1",
+        [user_id]
+      );
+    } else if (status === "rejected") {
+      await query(
+        "UPDATE users SET status = 'rejected', updated_at = CURRENT_TIMESTAMP WHERE id = $1",
+        [user_id]
+      );
+    }
+
+    // Log action
+    await logAction(
+      req.user.id,
+      "employee_form_status_updated",
+      {
+        formId: id,
+        userId: user_id,
+        newStatus: status,
+        approvedBy: approved_by,
+      },
+      req
+    );
+
+    res.json({
+      message: "Employee form status updated successfully",
+      status: status,
+      userId: user_id,
+    });
+  } catch (error) {
+    console.error("Update employee form status error:", error);
+    res.status(500).json({ error: "Failed to update employee form status" });
   }
 });
 
@@ -630,14 +1401,199 @@ router.delete("/employee-forms/:id", async (req, res) => {
     await query("DELETE FROM employee_details WHERE id = $1", [id]);
 
     // Log action
-    await logAction(req.user.id, "employee_form_deleted", {
-      formId: id,
-    }, req);
+    await logAction(
+      req.user.id,
+      "employee_form_deleted",
+      {
+        formId: id,
+      },
+      req
+    );
 
     res.json({ message: "Employee form deleted successfully" });
   } catch (error) {
     console.error("Delete employee form error:", error);
     res.status(500).json({ error: "Failed to delete employee form" });
+  }
+});
+
+// Add onboarded employee to master table (after Employee ID and manager assignment)
+router.post("/employees/:id/add-to-master", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { managerId, employeeId } = req.body;
+
+    // Check if employee exists and is onboarded
+    const employeeResult = await query(
+      `SELECT id, name, email, employee_type, department, status, manager_id, join_date
+       FROM users 
+       WHERE id = $1 AND role = 'employee'`,
+      [id]
+    );
+
+    if (employeeResult.rows.length === 0) {
+      return res.status(404).json({ error: "Employee not found" });
+    }
+
+    const employee = employeeResult.rows[0];
+
+    // Check if employee is onboarded
+    if (employee.status !== "onboarded") {
+      return res.status(400).json({
+        error: "Employee must be onboarded before adding to master table",
+        currentStatus: employee.status,
+      });
+    }
+
+    // Check if employee already exists in master table
+    const existingMaster = await query(
+      "SELECT id FROM master_employees WHERE user_id = $1",
+      [id]
+    );
+
+    if (existingMaster.rows.length > 0) {
+      return res.status(400).json({
+        error: "Employee is already in master table",
+      });
+    }
+
+    // Validate Employee ID (6 digits)
+    if (!employeeId) {
+      return res.status(400).json({
+        error: "Employee ID is required",
+      });
+    }
+
+    if (!/^\d{6}$/.test(employeeId)) {
+      return res.status(400).json({
+        error: "Employee ID must be exactly 6 digits",
+      });
+    }
+
+    // Check if Employee ID already exists in master table
+    const existingEmployeeId = await query(
+      "SELECT id FROM master_employees WHERE employee_id = $1",
+      [employeeId]
+    );
+
+    if (existingEmployeeId.rows.length > 0) {
+      return res.status(400).json({
+        error: "Employee ID already exists in master table",
+      });
+    }
+
+    // Validate manager assignment
+    if (!managerId) {
+      return res.status(400).json({
+        error: "Manager must be assigned before adding to master table",
+      });
+    }
+
+    // Verify manager exists and is valid
+    const managerResult = await query(
+      `SELECT u.id as user_id, u.name, u.role, me.id as master_id 
+       FROM users u 
+       LEFT JOIN master_employees me ON u.id = me.user_id 
+       WHERE u.id = $1 AND (u.role = 'hr' OR u.role = 'employee')`,
+      [managerId]
+    );
+
+    if (managerResult.rows.length === 0) {
+      return res.status(400).json({ error: "Invalid manager ID" });
+    }
+
+    const manager = managerResult.rows[0];
+    if (!manager.master_id) {
+      return res.status(400).json({
+        error: "Manager must be in master employees table first",
+      });
+    }
+
+    // Add employee to master_employees table with the new Employee ID field
+    await query(
+      `INSERT INTO master_employees (user_id, employee_id, name, email, employee_type, role, status, department, join_date, manager_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+      [
+        employee.id,
+        employeeId, // New 6-digit Employee ID
+        employee.name,
+        employee.email,
+        employee.employee_type,
+        "employee",
+        "active", // Set status to active in master table
+        employee.department,
+        employee.join_date,
+        manager.master_id, // Use master_employees.id instead of user_id
+      ]
+    );
+
+    // Update user's manager_id if not already set
+    if (!employee.manager_id) {
+      await query(
+        "UPDATE users SET manager_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
+        [managerId, id]
+      );
+    }
+
+    // Log action
+    await logAction(
+      req.user.id,
+      "employee_added_to_master",
+      {
+        employeeId: employee.id,
+        employeeName: employee.name,
+        employeeEmail: employee.email,
+        assignedEmployeeId: employeeId,
+        managerId: managerId,
+        managerName: managerResult.rows[0].name,
+      },
+      req
+    );
+
+    console.log(
+      `✅ Employee ${employee.name} (ID: ${employeeId}) added to master table with manager ${managerResult.rows[0].name}`
+    );
+
+    res.json({
+      message: "Employee successfully added to master table",
+      employee: {
+        ...employee,
+        employee_id: employeeId,
+        manager_id: managerId,
+        manager_name: managerResult.rows[0].name,
+      },
+      masterTableStatus: "active",
+    });
+  } catch (error) {
+    console.error("Add to master table error:", error);
+    res.status(500).json({ error: "Failed to add employee to master table" });
+  }
+});
+
+// Get onboarded employees (not yet in master table)
+router.get("/onboarded-employees", async (req, res) => {
+  try {
+    const result = await query(`
+      SELECT u.id, u.name, u.email, u.employee_type, u.department, u.status, 
+             u.manager_id, u.join_date, u.created_at,
+             m.name as manager_name
+      FROM users u
+      LEFT JOIN users m ON u.manager_id = m.id
+      WHERE u.role = 'employee' 
+        AND u.status = 'onboarded'
+        AND u.id NOT IN (
+          SELECT user_id FROM master_employees
+        )
+      ORDER BY u.created_at DESC
+    `);
+
+    res.json({
+      onboardedEmployees: result.rows,
+      total: result.rows.length,
+    });
+  } catch (error) {
+    console.error("Get onboarded employees error:", error);
+    res.status(500).json({ error: "Failed to fetch onboarded employees" });
   }
 });
 
@@ -649,7 +1605,7 @@ router.get("/departments", async (req, res) => {
     );
 
     res.json({
-      departments: result.rows.map(row => row.department),
+      departments: result.rows.map((row) => row.department),
     });
   } catch (error) {
     console.error("Get departments error:", error);
@@ -693,11 +1649,11 @@ router.get("/statistics", async (req, res) => {
       byDepartment: {},
     };
 
-    statusResult.rows.forEach(row => {
+    statusResult.rows.forEach((row) => {
       statistics.byStatus[row.status] = parseInt(row.count);
     });
 
-    departmentResult.rows.forEach(row => {
+    departmentResult.rows.forEach((row) => {
       statistics.byDepartment[row.department] = parseInt(row.count);
     });
 

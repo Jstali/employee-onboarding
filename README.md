@@ -117,7 +117,7 @@ cp config.env.example config.env
 
 # Start backend server
 npm start
-# Server runs on http://localhost:5022
+# Server runs on http://localhost:5047
 ```
 
 ### 3. Frontend Setup
@@ -147,22 +147,22 @@ npm start
 ### Backend Environment Variables (`backend/config.env`)
 
 ```env
-PORT=5022
+PORT=5047
 FRONTEND_URL=http://localhost:5180
 DB_HOST=localhost
 DB_PORT=5434
 DB_NAME=lastdb
 DB_USER=postgres
 DB_PASSWORD=Stali
-EMAIL_USER=your-email@gmail.com
-EMAIL_PASS=your-app-password
+EMAIL_USER=your-alpha@nxzen.com
+EMAIL_PASS=kmjaovdpjpwaggkt 
 ```
 
 ### Frontend Environment Variables (`frontend/.env`)
 
 ```env
 PORT=5180
-REACT_APP_API_URL=http://localhost:5022/api
+REACT_APP_API_URL=http://localhost:5047/api
 ```
 
 ## 📱 User Interface
@@ -301,9 +301,9 @@ npm test
 
 ```bash
 # Use tools like Postman or curl
-curl -X POST http://localhost:5022/api/auth/login \
+curl -X POST http://localhost:5047/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"admin@company.com","password":"admin123"}'
+  -d '{"email":"admin@nxzen.com","password":"admin123"}'
 ```
 
 ## 📊 Monitoring & Analytics

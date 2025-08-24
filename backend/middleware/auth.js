@@ -124,11 +124,14 @@ const authenticate = async (req, res, next) => {
 // Role-based access control middleware
 const authorize = (...roles) => {
   return (req, res, next) => {
+    // Flatten the roles array to handle cases where authorize(["hr"]) is called
+    const flatRoles = roles.flat();
+
     if (!req.user) {
       return res.status(401).json({ error: "User not authenticated." });
     }
 
-    if (!roles.includes(req.user.role)) {
+    if (!flatRoles.includes(req.user.role)) {
       return res
         .status(403)
         .json({ error: "Access denied. Insufficient permissions." });

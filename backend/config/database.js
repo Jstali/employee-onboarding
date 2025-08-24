@@ -164,10 +164,10 @@ const createTables = async (client) => {
         INSERT INTO users (name, email, password_hash, role, status, is_first_login)
         VALUES ($1, $2, $3, $4, $5, $6)
       `,
-        ["HR Manager", "hr@company.com", hashedPassword, "hr", "active", false]
+        ["HR Manager", "hr@nxzen.com", hashedPassword, "hr", "active", false]
       );
 
-      console.log("👔 Default HR user created (hr@company.com / hr123)");
+      console.log("👔 Default HR user created (hr@nxzen.com / hr123)");
     }
 
     // Create master_employees table
@@ -175,8 +175,10 @@ const createTables = async (client) => {
       CREATE TABLE IF NOT EXISTS master_employees (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+        employee_id VARCHAR(6) UNIQUE,
         name VARCHAR(100) NOT NULL,
         email VARCHAR(100) UNIQUE NOT NULL,
+        personal_email VARCHAR(100),
         employee_type VARCHAR(20) CHECK (employee_type IN ('intern','contract','fulltime')),
         role VARCHAR(20) CHECK (role IN ('employee','manager','hr')),
         status VARCHAR(20) DEFAULT 'active',
@@ -205,14 +207,14 @@ const createTables = async (client) => {
     // Insert default HR into master_employees if not exists
     const hrExistsMaster = await client.query(
       "SELECT id FROM master_employees WHERE email = $1",
-      ["hr@company.com"]
+      ["hr@nxzen.com"]
     );
 
     if (hrExistsMaster.rows.length === 0) {
       await client.query(`
         INSERT INTO master_employees (user_id, name, email, employee_type, role, status, department, join_date)
         SELECT id, name, email, 'fulltime', role, status, 'HR', created_at::date
-        FROM users WHERE email = 'hr@company.com'
+        FROM users WHERE email = 'hr@nxzen.com'
       `);
     }
 

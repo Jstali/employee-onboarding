@@ -16,6 +16,8 @@ import MyProfile from "./pages/MyProfile";
 import EmployeeAttendance from "./pages/EmployeeAttendance";
 import HRAttendanceDashboard from "./pages/HRAttendanceDashboard";
 import PasswordChange from "./pages/PasswordChange";
+import AwaitingApproval from "./pages/AwaitingApproval";
+import OnboardedEmployees from "./pages/OnboardedEmployees";
 import Layout from "./components/Layout";
 
 // Protected Route Component
@@ -34,7 +36,7 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
     return <Navigate to="/login" replace />;
   }
 
-  if (!allowedRoles.includes(user.role)) {
+  if (!allowedRoles.includes(user?.role)) {
     return <Navigate to="/" replace />;
   }
 
@@ -62,18 +64,24 @@ const AppRoutes = () => {
       >
         <Route
           index
-          element={
-            user?.role === "hr" ? <HRDashboard /> : <EmployeeDashboard />
-          }
+          element={(() => {
+            if (user?.role === "hr") {
+              return <HRDashboard />;
+            } else {
+              return <EmployeeDashboard />;
+            }
+          })()}
         />
 
         <Route
           path="hr"
-          element={
-            <ProtectedRoute allowedRoles={["hr"]}>
-              <HRDashboard />
-            </ProtectedRoute>
-          }
+          element={(() => {
+            return (
+              <ProtectedRoute allowedRoles={["hr"]}>
+                <HRDashboard />
+              </ProtectedRoute>
+            );
+          })()}
         />
 
         <Route
@@ -95,6 +103,15 @@ const AppRoutes = () => {
         />
 
         <Route
+          path="onboarded-employees"
+          element={
+            <ProtectedRoute allowedRoles={["hr"]}>
+              <OnboardedEmployees />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
           path="master"
           element={
             <ProtectedRoute allowedRoles={["hr"]}>
@@ -107,7 +124,109 @@ const AppRoutes = () => {
           path="form"
           element={
             <ProtectedRoute allowedRoles={["employee"]}>
-              <EmployeeForm />
+              {(() => {
+                // If user state is not loaded yet, show loading
+                if (!user) {
+                  return (
+                    <div className="flex items-center justify-center min-h-screen">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+                      <p className="text-gray-600 mt-2">Loading...</p>
+                    </div>
+                  );
+                }
+
+                // If user is onboarded AND hr_approved, redirect to attendance (they should never see form again)
+                if (user.onboarded && user.hr_approved) {
+                  return <Navigate to="/attendance" replace />;
+                }
+
+                // If form not submitted, show form (this is the main fix)
+                if (!user.form_submitted) {
+                  return <EmployeeForm />;
+                }
+
+                // If form submitted but not hr_approved, redirect to awaiting approval
+                if (user.form_submitted && !user.hr_approved) {
+                  return <Navigate to="/awaiting-approval" replace />;
+                }
+
+                // If form submitted and hr_approved but not onboarded, show awaiting approval
+                return <Navigate to="/awaiting-approval" replace />;
+              })()}
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="awaiting-approval"
+          element={
+            <ProtectedRoute allowedRoles={["employee"]}>
+              {(() => {
+                // If user state is not loaded yet, show loading
+                if (!user) {
+                  return (
+                    <div className="flex items-center justify-center min-h-screen">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+                      <p className="text-gray-600 mt-2">Checking your status...</p>
+                    </div>
+                  );
+                }
+
+                // If user is onboarded AND hr_approved, redirect to attendance
+                if (user.onboarded && user.hr_approved) {
+                  return <Navigate to="/attendance" replace />;
+                }
+
+                // If form not submitted, redirect to form (they must fill form first)
+                if (!user.form_submitted) {
+                  return <Navigate to="/form" replace />;
+                }
+
+                // If form submitted but not hr_approved, show awaiting approval
+                if (user.form_submitted && !user.hr_approved) {
+                  return <AwaitingApproval />;
+                }
+
+                // If form submitted and hr_approved but not onboarded, show awaiting approval
+                return <AwaitingApproval />;
+              })()}
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="attendance"
+          element={
+            <ProtectedRoute allowedRoles={["employee"]}>
+              {(() => {
+                // If user state is not loaded yet, show loading
+                if (!user) {
+                  return (
+                    <div className="flex items-center justify-center min-h-screen">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+                      <p className="text-gray-600 mt-2">Loading...</p>
+                    </div>
+                  );
+                }
+
+                // Only allow access if user is onboarded AND hr_approved (this is the key fix)
+                if (user.onboarded && user.hr_approved) {
+                  return <EmployeeAttendance />;
+                }
+
+                // If form not submitted, redirect to form (they must fill form first)
+                if (!user.form_submitted) {
+                  return <Navigate to="/form" replace />;
+                }
+
+                // If form submitted but not hr_approved, redirect to awaiting approval
+                if (user.form_submitted && !user.hr_approved) {
+                  return <Navigate to="/awaiting-approval" replace />;
+                }
+
+                // If form submitted and hr_approved but not onboarded, redirect to awaiting approval
+                return <Navigate to="/awaiting-approval" replace />;
+              })()}
             </ProtectedRoute>
           }
         />
@@ -117,15 +236,6 @@ const AppRoutes = () => {
           element={
             <ProtectedRoute allowedRoles={["employee"]}>
               <MyProfile />
-            </ProtectedRoute>
-          }
-        />
-
-        <Route
-          path="attendance"
-          element={
-            <ProtectedRoute allowedRoles={["employee"]}>
-              <EmployeeAttendance />
             </ProtectedRoute>
           }
         />

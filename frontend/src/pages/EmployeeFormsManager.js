@@ -235,7 +235,13 @@ const EmployeeFormsManager = () => {
             <thead className="bg-gray-50">
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Employee
+                  Employee ID
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Employee Name
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Employee Nxzen Email
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Type
@@ -245,6 +251,9 @@ const EmployeeFormsManager = () => {
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Form Status
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Documents
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Manager
@@ -257,13 +266,14 @@ const EmployeeFormsManager = () => {
             <tbody className="bg-white divide-y divide-gray-200">
               {forms.map((form) => (
                 <tr key={form.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div>
-                      <div className="text-sm font-medium text-gray-900">
-                        {form.name}
-                      </div>
-                      <div className="text-sm text-gray-500">{form.email}</div>
-                    </div>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                    {form.employee_id || "N/A"}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                    {form.name}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    {form.email}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 capitalize">
                     {form.employee_type}
@@ -280,6 +290,24 @@ const EmployeeFormsManager = () => {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                     {form.personal_info ? "Submitted" : "Not Started"}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    <div className="flex items-center space-x-2">
+                      <span
+                        className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                          form.document_count > 0
+                            ? "bg-green-100 text-green-800"
+                            : "bg-gray-100 text-gray-800"
+                        }`}
+                      >
+                        {form.document_count || 0} docs
+                      </span>
+                      {form.document_count > 0 && (
+                        <span className="text-xs text-gray-500">
+                          {(form.document_count / 1024).toFixed(1)} MB
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                     {form.manager_name || "Not Assigned"}
@@ -670,6 +698,130 @@ const FormModal = ({ form, isEditing, onClose, onUpdate }) => {
                       disabled={!isEditing}
                     />
                   </div>
+                </div>
+              </div>
+            )}
+
+            {/* Uploaded Documents */}
+            {formData.documents && formData.documents.length > 0 && (
+              <div className="bg-gray-50 p-4 rounded-lg">
+                <h4 className="font-medium text-gray-900 mb-4">
+                  Uploaded Documents ({formData.documents.length})
+                </h4>
+                <div className="space-y-3">
+                  {formData.documents.map((doc, index) => (
+                    <div
+                      key={index}
+                      className="flex items-center justify-between p-3 bg-white rounded-lg border"
+                    >
+                      <div className="flex-1">
+                        <div className="flex items-center space-x-3">
+                          <div className="flex-shrink-0">
+                            {doc.documentType === "profile_photo" ? (
+                              <svg
+                                className="h-6 w-6 text-blue-500"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"
+                                />
+                              </svg>
+                            ) : (
+                              <svg
+                                className="h-6 w-6 text-green-500"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                                />
+                              </svg>
+                            )}
+                          </div>
+                          <div className="flex-1">
+                            <div className="flex items-center space-x-2">
+                              <span className="font-medium text-gray-900">
+                                {doc.documentType
+                                  .replace(/_/g, " ")
+                                  .replace(/\b\w/g, (l) => l.toUpperCase())}
+                              </span>
+                              {doc.isRequired && (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
+                                  Required
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-sm text-gray-500">
+                              {doc.fileName} •{" "}
+                              {(doc.fileSize / 1024 / 1024).toFixed(2)} MB
+                            </div>
+                            <div className="text-xs text-gray-400">
+                              Uploaded:{" "}
+                              {new Date(doc.createdAt).toLocaleDateString()}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <a
+                          href={doc.downloadUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded text-blue-700 bg-blue-100 hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                        >
+                          <svg
+                            className="h-4 w-4 mr-1"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                            />
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
+                            />
+                          </svg>
+                          View
+                        </a>
+                        <a
+                          href={doc.downloadUrl}
+                          download={doc.fileName}
+                          className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded text-green-700 bg-green-100 hover:bg-green-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                        >
+                          <svg
+                            className="h-4 w-4 mr-1"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                            />
+                          </svg>
+                          Download
+                        </a>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             )}

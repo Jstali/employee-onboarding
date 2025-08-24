@@ -1,11 +1,8 @@
 import React, { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
-import { useAuth } from "../contexts/AuthContext";
+import { Navigate } from "react-router-dom";
 import api from "../services/api";
 
 const EmployeeDashboard = () => {
-  const { user } = useAuth();
-  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [userStatus, setUserStatus] = useState(null);
 
@@ -19,13 +16,13 @@ const EmployeeDashboard = () => {
       const passwordResponse = await api.get("/employee/check-password-status");
 
       if (passwordResponse.data.needsPasswordChange) {
-        navigate("/change-password");
+        window.location.href = "/change-password";
         return;
       }
 
-      // Check form status
-      const formResponse = await api.get("/employee/form-status");
-      setUserStatus(formResponse.data);
+      // Check onboarding status using new endpoint
+      const onboardingResponse = await api.get("/employee/onboarding-status");
+      setUserStatus(onboardingResponse.data);
       setLoading(false);
     } catch (error) {
       console.error("Failed to check user status:", error);
@@ -44,19 +41,22 @@ const EmployeeDashboard = () => {
     );
   }
 
-  // If user is active, redirect to attendance portal
-  if (userStatus?.canAccessAttendance) {
-    navigate("/attendance");
-    return null;
+  // If user is onboarded, redirect to attendance portal
+  if (userStatus?.onboarded) {
+    return <Navigate to="/attendance" />;
   }
 
-  // If form not submitted, redirect to form
+  // If form not submitted, redirect to form (this is the key fix)
   if (!userStatus?.formSubmitted) {
-    navigate("/form");
-    return null;
+    return <Navigate to="/form" />;
   }
 
-  // If form submitted but not approved, show pending message
+  // If form submitted but not onboarded, redirect to awaiting approval
+  if (userStatus?.formSubmitted && !userStatus?.onboarded) {
+    return <Navigate to="/awaiting-approval" />;
+  }
+
+  // If form submitted but not onboarded, show pending message
   return (
     <div className="p-6">
       <div className="max-w-4xl mx-auto">

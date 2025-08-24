@@ -34,14 +34,16 @@ router.post("/login", async (req, res) => {
 
     const user = userResult.rows[0];
 
-    // Check if user is approved
+    // Check if user is rejected
     if (user.status === "rejected") {
       return res
         .status(401)
         .json({ error: "Account has been rejected. Please contact HR." });
     }
 
-    if (user.status === "pending") {
+    // Allow pending employees to log in (they need to fill out onboarding forms)
+    // Only reject pending users if they're not employees
+    if (user.status === "pending" && user.role !== "employee") {
       return res
         .status(401)
         .json({ error: "Account is pending approval. Please contact HR." });

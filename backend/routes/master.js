@@ -72,8 +72,10 @@ router.get("/", requireHRorAdmin, async (req, res) => {
       `SELECT 
         me.id,
         me.user_id,
+        me.employee_id,
         me.name,
         me.email,
+        me.personal_email,
         me.employee_type,
         me.role,
         me.status,
@@ -113,8 +115,10 @@ router.get("/profile", async (req, res) => {
       `SELECT 
         me.id,
         me.user_id,
+        me.employee_id,
         me.name,
         me.email,
+        me.personal_email,
         me.employee_type,
         me.role,
         me.status,
@@ -218,8 +222,10 @@ router.get("/:id", requireHRorAdmin, async (req, res) => {
       `SELECT 
         me.id,
         me.user_id,
+        me.employee_id,
         me.name,
         me.email,
+        me.personal_email,
         me.employee_type,
         me.role,
         me.status,
@@ -251,16 +257,19 @@ router.get("/:id", requireHRorAdmin, async (req, res) => {
 // Add new employee manually (HR/Admin only)
 router.post("/", requireHRorAdmin, async (req, res) => {
   try {
-    let { name, email, employeeType, role, department, joinDate, managerId } =
+    let { employeeId, name, email, personalEmail, employeeType, role, department, joinDate, managerId } =
       req.body;
 
     // Clean up empty strings and convert to null for optional fields
     joinDate = joinDate || null;
     managerId = managerId || null;
+    personalEmail = personalEmail || null;
 
     console.log("Received create employee request:", {
+      employeeId,
       name,
       email,
+      personalEmail,
       employeeType,
       role,
       department,
@@ -269,8 +278,9 @@ router.post("/", requireHRorAdmin, async (req, res) => {
     });
 
     // Validate required fields
-    if (!name || !email || !employeeType || !role || !department) {
+    if (!employeeId || !name || !email || !employeeType || !role || !department) {
       console.log("Validation failed - missing fields:", {
+        hasEmployeeId: !!employeeId,
         hasName: !!name,
         hasEmail: !!email,
         hasEmployeeType: !!employeeType,
@@ -278,8 +288,25 @@ router.post("/", requireHRorAdmin, async (req, res) => {
         hasDepartment: !!department,
       });
       return res.status(400).json({
-        error: "Name, email, employee type, role, and department are required",
+        error: "Employee ID, name, email, employee type, role, and department are required",
       });
+    }
+
+    // Validate Employee ID format (6 digits)
+    if (!/^\d{6}$/.test(employeeId)) {
+      return res.status(400).json({
+        error: "Employee ID must be exactly 6 digits",
+      });
+    }
+
+    // Check if Employee ID already exists
+    const existingEmployeeId = await query(
+      "SELECT id FROM master_employees WHERE employee_id = $1",
+      [employeeId]
+    );
+
+    if (existingEmployeeId.rows.length > 0) {
+      return res.status(400).json({ error: "Employee ID already exists" });
     }
 
     // Check if email already exists
@@ -295,12 +322,14 @@ router.post("/", requireHRorAdmin, async (req, res) => {
     // Insert new employee
     const newEmployee = await query(
       `INSERT INTO master_employees (
-        name, email, employee_type, role, department, join_date, manager_id
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+        employee_id, name, email, personal_email, employee_type, role, department, join_date, manager_id
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       RETURNING *`,
       [
+        employeeId,
         name,
         email.toLowerCase(),
+        personalEmail,
         employeeType,
         role,
         department,
@@ -364,6 +393,7 @@ router.put("/:id", requireHRorAdmin, async (req, res) => {
     const {
       name,
       email,
+      personalEmail,
       employeeType,
       role,
       department,
@@ -399,18 +429,20 @@ router.put("/:id", requireHRorAdmin, async (req, res) => {
       `UPDATE master_employees SET
         name = COALESCE($1, name),
         email = COALESCE($2, email),
-        employee_type = COALESCE($3, employee_type),
-        role = COALESCE($4, role),
-        department = COALESCE($5, department),
-        join_date = COALESCE($6, join_date),
-        manager_id = COALESCE($7, manager_id),
-        status = COALESCE($8, status),
+        personal_email = COALESCE($3, personal_email),
+        employee_type = COALESCE($4, employee_type),
+        role = COALESCE($5, role),
+        department = COALESCE($6, department),
+        join_date = COALESCE($7, join_date),
+        manager_id = COALESCE($8, manager_id),
+        status = COALESCE($9, status),
         updated_at = CURRENT_TIMESTAMP
-      WHERE id = $9
+      WHERE id = $10
       RETURNING *`,
       [
         name,
         email?.toLowerCase(),
+        personalEmail,
         employeeType,
         role,
         department,

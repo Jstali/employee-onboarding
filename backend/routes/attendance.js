@@ -51,10 +51,13 @@ const isWeekend = (date) => {
   return day === 0 || day === 6; // Sunday = 0, Saturday = 6
 };
 
-// Helper function to get current date in YYYY-MM-DD format
+// Helper function to get current date in YYYY-MM-DD format (local timezone)
 const getCurrentDate = () => {
   const today = new Date();
-  return today.toISOString().split("T")[0];
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, "0");
+  const day = String(today.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 };
 
 // Mark attendance for current user
@@ -166,6 +169,16 @@ router.get("/my-calendar", authenticate, async (req, res) => {
     const targetMonth = month || currentDate.getMonth() + 1;
     const targetYear = year || currentDate.getFullYear();
 
+    console.log(
+      "🔍 Calendar Debug - Current server date:",
+      currentDate.toISOString()
+    );
+    console.log(
+      "🔍 Calendar Debug - Target month/year:",
+      targetMonth,
+      targetYear
+    );
+
     const startDate = `${targetYear}-${targetMonth
       .toString()
       .padStart(2, "0")}-01`;
@@ -196,10 +209,19 @@ router.get("/my-calendar", authenticate, async (req, res) => {
 
       // Convert database date to YYYY-MM-DD format for comparison
       const attendance = attendanceResult.rows.find((a) => {
-        const dbDate = new Date(a.date).toISOString().split('T')[0];
-        console.log(`🔍 Comparing date: ${date} with DB date: ${dbDate}`);
+        const dbDate = new Date(a.date).toISOString().split("T")[0];
+        console.log(
+          `🔍 Comparing date: ${date} with DB date: ${dbDate}, match: ${
+            dbDate === date
+          }`
+        );
         return dbDate === date;
       });
+
+      console.log(
+        `🔍 Day ${day}: date=${date}, found attendance:`,
+        attendance ? attendance.status : "none"
+      );
 
       calendar.push({
         date,
@@ -361,10 +383,15 @@ router.get("/summary", authenticate, authorize(["hr"]), async (req, res) => {
        GROUP BY status`,
       queryParams
     );
+    
+    console.log("🔍 Attendance Summary Debug:");
+    console.log("  - Date filter:", dateFilter);
+    console.log("  - Query params:", queryParams);
+    console.log("  - Summary result:", summaryResult.rows);
 
-    // Get total employees
+    // Get total employees (removed status filter since column was removed)
     const totalEmployeesResult = await query(
-      "SELECT COUNT(*) as total FROM users WHERE role = 'employee' AND status = 'active'"
+      "SELECT COUNT(*) as total FROM users WHERE role = 'employee'"
     );
 
     const summary = {
@@ -380,6 +407,8 @@ router.get("/summary", authenticate, authorize(["hr"]), async (req, res) => {
       summary[row.status] = parseInt(row.count);
       summary.total += parseInt(row.count);
     });
+    
+    console.log("🔍 Final summary object:", summary);
 
     // Calculate percentages
     summary.presentPercentage =

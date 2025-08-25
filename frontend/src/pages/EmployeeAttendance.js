@@ -13,6 +13,15 @@ const EmployeeAttendance = () => {
   const { user } = useAuth();
   const [attendance, setAttendance] = useState([]);
   const [calendar, setCalendar] = useState([]);
+
+  // Debug attendance and calendar state changes
+  useEffect(() => {
+    console.log("🔍 Attendance State Updated:", attendance);
+  }, [attendance]);
+
+  useEffect(() => {
+    console.log("🔍 Calendar State Updated:", calendar);
+  }, [calendar]);
   const [currentMonth, setCurrentMonth] = useState(new Date().getMonth() + 1);
   const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
   const [loading, setLoading] = useState(true);
@@ -28,6 +37,7 @@ const EmployeeAttendance = () => {
   const fetchAttendance = useCallback(async () => {
     try {
       const response = await api.get("/attendance/my-attendance");
+      console.log("🔍 Attendance API Response:", response.data);
       setAttendance(response.data.attendance);
     } catch (error) {
       console.error("Failed to fetch attendance:", error);
@@ -43,6 +53,7 @@ const EmployeeAttendance = () => {
       const response = await api.get(
         `/attendance/my-calendar?month=${currentMonth}&year=${currentYear}`
       );
+      console.log("🔍 Calendar API Response:", response.data);
       setCalendar(response.data.calendar);
       setLoading(false);
     } catch (error) {
@@ -111,6 +122,7 @@ const EmployeeAttendance = () => {
   };
 
   const getStatusIcon = (status) => {
+    console.log("🔍 getStatusIcon called with status:", status);
     switch (status) {
       case "present":
         return <CheckCircleIcon className="h-5 w-5 text-green-500" />;
@@ -121,6 +133,7 @@ const EmployeeAttendance = () => {
       case "weekend":
         return <CalendarIcon className="h-5 w-5 text-gray-400" />;
       default:
+        console.log("🔍 Using default icon for status:", status);
         return <ExclamationTriangleIcon className="h-5 w-5 text-gray-400" />;
     }
   };
@@ -331,9 +344,9 @@ const EmployeeAttendance = () => {
             Recent Attendance
           </h2>
           <div className="space-y-3">
-            {attendance.slice(0, 5).map((record) => (
+            {attendance.slice(0, 5).map((record, index) => (
               <div
-                key={record.id}
+                key={record.id || `attendance-${index}`}
                 className={`flex items-center justify-between p-3 rounded-lg border ${getStatusColor(
                   record.status
                 )}`}
@@ -417,31 +430,34 @@ const EmployeeAttendance = () => {
             ))}
 
             {/* Calendar days */}
-            {calendar.map((day, index) => (
-              <div
-                key={`${day.date}-${index}`}
-                className={`p-2 text-center border min-h-[60px] flex flex-col items-center justify-center ${
-                  day.isWeekend
-                    ? "bg-gray-50 text-gray-400"
-                    : day.date === today
-                    ? "bg-blue-50 border-blue-200"
-                    : "bg-white"
-                }`}
-              >
-                <span className="text-sm font-medium mb-1">
-                  {new Date(day.date).getDate()}
-                </span>
-                <div className="flex flex-col items-center space-y-1">
-                  {getStatusIcon(day.status)}
-                  {day.status === "leave" && day.reason && (
-                    <div
-                      className="w-2 h-2 bg-red-500 rounded-full"
-                      title={day.reason}
-                    ></div>
-                  )}
+            {calendar.map((day, index) => {
+              console.log(`🔍 Calendar Day ${index}:`, day);
+              return (
+                <div
+                  key={`day-${index}-${day.date || "unknown"}`}
+                  className={`p-2 text-center border min-h-[60px] flex flex-col items-center justify-center ${
+                    day.isWeekend
+                      ? "bg-gray-50 text-gray-400"
+                      : day.date === today
+                      ? "bg-blue-50 border-blue-200"
+                      : "bg-white"
+                  }`}
+                >
+                  <span className="text-sm font-medium mb-1">
+                    {day.date ? new Date(day.date).getDate() : index + 1}
+                  </span>
+                  <div className="flex flex-col items-center space-y-1">
+                    {getStatusIcon(day.status)}
+                    {day.status === "leave" && day.reason && (
+                      <div
+                        className="w-2 h-2 bg-red-500 rounded-full"
+                        title={day.reason}
+                      ></div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 

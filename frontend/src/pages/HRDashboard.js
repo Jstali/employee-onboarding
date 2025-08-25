@@ -79,8 +79,18 @@ const HRDashboard = () => {
         api.get("/hr/employee-forms"),
       ]);
 
-      setEmployees(employeesRes.data.employees);
-      setManagers(managersRes.data.managers);
+      console.log(
+        "🔍 HRDashboard Debug - Employees response:",
+        employeesRes.data
+      );
+      console.log(
+        "🔍 HRDashboard Debug - Managers response:",
+        managersRes.data
+      );
+      console.log("🔍 HRDashboard Debug - Forms response:", formsRes.data);
+
+      setEmployees(employeesRes.data.employees || []);
+      setManagers(managersRes.data.managers || []);
       setEmployeeForms(formsRes.data.forms || []);
     } catch (err) {
       console.error("❌ HRDashboard Debug - Dashboard data fetch error:", err);
@@ -130,10 +140,20 @@ const HRDashboard = () => {
       setTimeout(() => setSuccessMessage(""), 5000); // Clear message after 5 seconds
     } catch (err) {
       setSuccessMessage(""); // Clear any previous success message
-      setErrorMessage(
-        "Failed to send employee welcome mail: " +
-          (err.response?.data?.error || err.message)
-      );
+      // Check if it's a duplicate email error and provide helpful message
+      if (
+        err.response?.data?.error &&
+        err.response.data.error.includes("already exists")
+      ) {
+        setErrorMessage(
+          "Employee with this email already exists. Use the '📧 Resend' button in the Employee Management table to send a new invitation email."
+        );
+      } else {
+        setErrorMessage(
+          "Failed to send employee welcome mail: " +
+            (err.response?.data?.error || err.message)
+        );
+      }
       setTimeout(() => setErrorMessage(""), 5000); // Clear message after 5 seconds
     } finally {
       setSendingEmployeeMail(false);
@@ -145,8 +165,18 @@ const HRDashboard = () => {
       setErrorMessage(""); // Clear any previous error
       setSuccessMessage(""); // Clear any previous success message
 
+      console.log(
+        "🔍 Frontend Debug - Resending invitation to employee ID:",
+        employeeId
+      );
+
       const response = await api.post(
         `/hr/employees/${employeeId}/resend-invitation`
+      );
+
+      console.log(
+        "✅ Frontend Debug - Resend invitation success:",
+        response.data
       );
 
       setSuccessMessage(
@@ -154,6 +184,9 @@ const HRDashboard = () => {
       );
       setTimeout(() => setSuccessMessage(""), 5000); // Clear message after 5 seconds
     } catch (err) {
+      console.error("❌ Frontend Debug - Resend invitation error:", err);
+      console.error("❌ Frontend Debug - Error response:", err.response?.data);
+
       setSuccessMessage(""); // Clear any previous success message
       setErrorMessage(
         "Failed to resend invitation email: " +
@@ -176,111 +209,50 @@ const HRDashboard = () => {
     });
   };
 
-  const handleStatusChange = async (employeeId, newStatus) => {
+  const handleStatusChange = async (formId, newStatus) => {
     try {
-      // If approving an employee, implement the onboarding process
-      if (
-        newStatus === "approved" &&
-        features.OnboardingProcess.afterApprovalMoveTo === "OnboardedEmployee"
-      ) {
-        // Find the employee to get their details
-        const employee = employees.find((emp) => emp.id === employeeId);
+      console.log("🔍 Frontend Debug - Status change requested:", {
+        formId,
+        newStatus,
+      });
 
-        // Prepare the onboarding data with required fields
-        const onboardingData = {
-          status: newStatus,
-          onboardingFields: features.OnboardingProcess.assignFields
-            .map((field) => {
-              switch (field) {
-                case "EmployeeID":
-                  return { field: "employee_id", value: generateEmployeeID() };
-                case "CompanyEmail":
-                  return {
-                    field: "company_email",
-                    value: generateCompanyEmail(employee.email),
-                  };
-                case "Manager":
-                  return {
-                    field: "manager_id",
-                    value: employee.manager_id || null,
-                  };
-                default:
-                  return null;
-              }
-            })
-            .filter(Boolean),
-        };
-
-        await api.patch(`/hr/employees/${employeeId}/status`, onboardingData);
-
-        // Update local state with new fields
-        setEmployees(
-          employees.map((emp) =>
-            emp.id === employeeId
-              ? {
-                  ...emp,
-                  status: newStatus,
-                  ...onboardingData.onboardingFields.reduce((acc, field) => {
-                    acc[field.field] = field.value;
-                    return acc;
-                  }, {}),
-                }
-              : emp
-          )
-        );
-
-        alert(`Employee approved and onboarding fields assigned successfully!`);
-
-        // Move employee to Employee Master Table after onboarding completion
-        if (
-          features.EmployeeMasterTable.afterOnboardingMoveTo ===
-          "EmployeeMasterTable"
-        ) {
-          try {
-            await api.post(`/hr/employees/${employeeId}/add-to-master`, {
-              employee_id: onboardingData.onboardingFields.find(
-                (f) => f.field === "employee_id"
-              )?.value,
-              company_email: onboardingData.onboardingFields.find(
-                (f) => f.field === "company_email"
-              )?.value,
-              manager_id: onboardingData.onboardingFields.find(
-                (f) => f.field === "manager_id"
-              )?.value,
-            });
-
-            setSuccessMessage(
-              "Employee successfully moved to Employee Master Table!"
-            );
-            setTimeout(() => setSuccessMessage(""), 5000);
-          } catch (masterError) {
-            console.error(
-              "Failed to move employee to master table:",
-              masterError
-            );
-            setErrorMessage(
-              "Employee approved but failed to move to master table. Please try again."
-            );
-            setTimeout(() => setErrorMessage(""), 5000);
-          }
-        }
-      } else {
-        // Regular status change
-        await api.patch(`/hr/employees/${employeeId}/status`, {
-          status: newStatus,
-        });
-        setEmployees(
-          employees.map((emp) =>
-            emp.id === employeeId ? { ...emp, status: newStatus } : emp
-          )
-        );
-        alert(`Employee status updated to ${newStatus}`);
-      }
-    } catch (err) {
-      alert(
-        "Failed to update employee status: " +
-          (err.response?.data?.error || err.message)
+      // Find the form data first
+      const form = employeeForms.find(
+        (f) => f.form_id === formId || f.id === formId
       );
+      if (!form) {
+        console.error("❌ Form not found:", formId);
+        setErrorMessage(
+          "Form not found. Please refresh the page and try again."
+        );
+        setTimeout(() => setErrorMessage(""), 5000);
+        return;
+      }
+
+      console.log("🔍 Frontend Debug - Form data found:", form);
+
+      // Call the backend to update the form status
+      const response = await api.patch(`/hr/employee-forms/${formId}/status`, {
+        status: newStatus,
+      });
+
+      console.log("✅ Backend status update response:", response.data);
+
+      // Update the form status in local state
+      setEmployeeForms(
+        employeeForms.map((f) =>
+          f.form_id === formId || f.id === formId
+            ? { ...f, form_status: newStatus }
+            : f
+        )
+      );
+
+      setSuccessMessage(`Employee form ${newStatus} successfully!`);
+      setTimeout(() => setSuccessMessage(""), 5000);
+    } catch (error) {
+      console.error("❌ HRDashboard Debug - Status change error:", error);
+      setErrorMessage("Failed to update form status: " + error.message);
+      setTimeout(() => setErrorMessage(""), 5000);
     }
   };
 
@@ -525,10 +497,21 @@ const HRDashboard = () => {
       )}
       {/* Error Message */}
       {errorMessage && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-          <div className="flex items-center">
-            <XCircleIcon className="h-5 w-5 text-red-400 mr-2" />
-            <p className="text-red-800 font-medium">{errorMessage}</p>
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
+          <div className="flex items-start">
+            <XCircleIcon className="h-5 w-5 text-red-400 mr-2 mt-0.5 flex-shrink-0" />
+            <div className="flex-1">
+              <p className="text-red-800 font-medium leading-relaxed break-words">
+                {errorMessage}
+              </p>
+              {errorMessage.includes("already exists") && (
+                <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-sm text-blue-700">
+                  💡 <strong>Tip:</strong> If you need to send a new invitation
+                  to an existing employee, use the "📧 Resend" button in the
+                  Employee Management table below.
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -540,6 +523,12 @@ const HRDashboard = () => {
               <h3 className="text-lg font-medium text-gray-900 mb-4">
                 Send Employee Welcome Mail
               </h3>
+              <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded text-sm text-blue-700">
+                💡 <strong>Note:</strong> This creates a new employee account.
+                If the employee already exists, use the "📧 Resend" button in
+                the Employee Management table below to send a new invitation
+                email.
+              </div>
               <form onSubmit={handleSendEmployeeMail} className="space-y-4">
                 <div>
                   <label className="form-label">Name</label>
@@ -874,6 +863,10 @@ const HRDashboard = () => {
           <h2 className="text-lg font-medium text-gray-900">
             Employee Management
           </h2>
+          <p className="text-sm text-gray-600 mt-1">
+            Manage existing employees. Use "📧 Resend" to send new invitation
+            emails, or "🗑️ Delete" to remove employees.
+          </p>
         </div>
 
         {/* Filters Section */}
@@ -932,7 +925,7 @@ const HRDashboard = () => {
                   Type
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
+                  Email & Actions
                 </th>
 
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -946,97 +939,131 @@ const HRDashboard = () => {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {employees.map((employee) => (
-                <tr key={employee.id}>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                    {employee.employee_id || "N/A"}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                    {employee.name}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {employee.email}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 capitalize">
-                    {employee.employee_type}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex items-center space-x-2">
-                      {/* Resend Invitation Button */}
-                      <button
-                        onClick={() => handleResendInvitation(employee.id)}
-                        className="text-blue-600 hover:text-blue-900 bg-blue-100 hover:bg-blue-200 px-2 py-1 rounded text-xs font-medium"
-                        title="Resend Invitation Email"
-                      >
-                        📧 Resend
-                      </button>
-                      {/* Delete Button - Show for all employees */}
-                      <button
-                        onClick={() => openDeleteModal(employee)}
-                        className="text-red-600 hover:text-red-900 bg-red-100 hover:bg-red-200 px-2 py-1 rounded text-xs font-medium"
-                        title="Delete Employee"
-                      >
-                        🗑️ Delete
-                      </button>
-                    </div>
-                  </td>
-
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {employee.manager_name || "Not Assigned"}
-                  </td>
-                  {!features.HRManagementTable.removeActionColumn && (
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
-                      {/* Manager Assignment and Other Actions */}
-                      <select
-                        className="text-sm border rounded px-2 py-1"
-                        value={employee.manager_id || ""}
-                        onChange={(e) =>
-                          handleManagerAssignment(employee.id, e.target.value)
-                        }
-                      >
-                        <option value="">No Manager</option>
-                        {managers.map((manager) => (
-                          <option key={manager.id} value={manager.id}>
-                            {manager.name}
-                          </option>
-                        ))}
-                      </select>
-
-                      {/* Delete Button - Show for all employees */}
-                      <button
-                        onClick={() => openDeleteModal(employee)}
-                        className="text-red-600 hover:text-red-900 ml-2 p-1 rounded hover:bg-red-50"
-                        title="Delete Employee"
-                      >
-                        <TrashIcon className="h-4 w-4" />
-                      </button>
-
-                      {/* Restore Button - Show for deleted employees */}
-                      {employee.status === "deleted" && (
+              {console.log(
+                "🔍 HRDashboard Debug - Rendering employees:",
+                employees
+              )}
+              {employees.length > 0 ? (
+                employees.map((employee) => (
+                  <tr key={employee.id}>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                      {employee.employee_id || "N/A"}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                      {employee.name}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {employee.email}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 capitalize">
+                      {employee.employee_type}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex items-center space-x-2">
+                        {/* Resend Invitation Button */}
                         <button
-                          onClick={() => handleRestoreEmployee(employee.id)}
-                          className="text-green-600 hover:text-green-900 ml-2 p-1 rounded hover:bg-green-50"
-                          title="Restore Employee"
+                          onClick={() => handleResendInvitation(employee.id)}
+                          className="text-blue-600 hover:text-blue-900 bg-blue-100 hover:bg-blue-200 px-2 py-1 rounded text-xs font-medium"
+                          title="Resend Invitation Email"
                         >
-                          <svg
-                            className="h-4 w-4"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
+                          📧 Resend
+                        </button>
+                        {/* Delete Button - Show for all employees */}
+                        <button
+                          onClick={() => openDeleteModal(employee)}
+                          className="text-red-600 hover:text-red-900 bg-red-100 hover:bg-red-200 px-2 py-1 rounded text-xs font-medium"
+                          title="Delete Employee"
+                        >
+                          🗑️ Delete
+                        </button>
+                      </div>
+                    </td>
+
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {employee.manager_name || "Not Assigned"}
+                    </td>
+                    {!features.HRManagementTable.removeActionColumn && (
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
+                        {/* Manager Assignment and Other Actions */}
+                        <select
+                          className="text-sm border rounded px-2 py-1"
+                          value={employee.manager_id || ""}
+                          onChange={(e) =>
+                            handleManagerAssignment(employee.id, e.target.value)
+                          }
+                        >
+                          <option value="">No Manager</option>
+                          {managers.map((manager) => (
+                            <option key={manager.id} value={manager.id}>
+                              {manager.name}
+                            </option>
+                          ))}
+                        </select>
+
+                        {/* Delete Button - Show for all employees */}
+                        <button
+                          onClick={() => openDeleteModal(employee)}
+                          className="text-red-600 hover:text-red-900 ml-2 p-1 rounded hover:bg-red-50"
+                          title="Delete Employee"
+                        >
+                          <TrashIcon className="h-4 w-4" />
+                        </button>
+
+                        {/* Restore Button - Show for deleted employees */}
+                        {employee.status === "deleted" && (
+                          <button
+                            onClick={() => handleRestoreEmployee(employee.id)}
+                            className="text-green-600 hover:text-green-900 ml-2 p-1 rounded hover:bg-green-50"
+                            title="Restore Employee"
                           >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-                            />
-                          </svg>
+                            <svg
+                              className="h-4 w-4"
+                              fill="none"
+                              viewBox="0 0 24 24"
+                              stroke="currentColor"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                              />
+                            </svg>
+                          </button>
+                        )}
+                      </td>
+                    )}
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td
+                    colSpan="6"
+                    className="px-6 py-8 text-center text-gray-500"
+                  >
+                    <div className="flex flex-col items-center">
+                      <UsersIcon className="h-12 w-12 text-gray-400 mb-2" />
+                      <p className="text-lg font-medium text-gray-900 mb-1">
+                        No employees found
+                      </p>
+                      <p className="text-sm text-gray-500">
+                        {loading
+                          ? "Loading employees..."
+                          : "No employees have been created yet."}
+                      </p>
+                      {!loading && (
+                        <button
+                          onClick={() => setShowCreateForm(true)}
+                          className="mt-3 inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                        >
+                          <UserPlusIcon className="h-4 w-4 mr-2" />
+                          Create First Employee
                         </button>
                       )}
-                    </td>
-                  )}
+                    </div>
+                  </td>
                 </tr>
-              ))}
+              )}
             </tbody>
           </table>
         </div>

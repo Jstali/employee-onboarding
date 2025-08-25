@@ -17,13 +17,8 @@ const OnboardedEmployees = () => {
   const [employeeIdErrors, setEmployeeIdErrors] = useState({});
   const [validatingEmployeeIds, setValidatingEmployeeIds] = useState({});
 
-  // Predefined manager list as requested
-  const predefinedManagers = [
-    { id: "pradeep", name: "Pradeep", department: "Engineering" },
-    { id: "vamshi", name: "Vamshi", department: "Product" },
-    { id: "vinod", name: "Vinod", department: "Design" },
-    { id: "rakesh", name: "Rakesh", department: "Marketing" },
-  ];
+  // Manager list - will be populated from backend
+  const [predefinedManagers, setPredefinedManagers] = useState([]);
 
   // Suggest next available Employee ID
   const suggestNextEmployeeId = () => {
@@ -46,14 +41,31 @@ const OnboardedEmployees = () => {
     return suggestedId.toString().padStart(6, "0");
   };
 
+  // Fetch managers from backend
+  const fetchManagers = async () => {
+    try {
+      const managersRes = await api.get("/hr/managers");
+      setPredefinedManagers(managersRes.data.managers);
+    } catch (err) {
+      console.error("Failed to fetch managers:", err);
+      // Fallback to empty array if managers fetch fails
+      setPredefinedManagers([]);
+    }
+  };
+
   // Fetch onboarded employees
   const fetchData = async () => {
     try {
       setLoading(true);
       setError("");
 
-      const onboardedRes = await api.get("/hr/onboarded-employees");
-      setOnboardedEmployees(onboardedRes.data.onboardedEmployees);
+      // Fetch both managers and onboarded employees
+      await Promise.all([
+        fetchManagers(),
+        api.get("/hr/onboarded-employees").then((res) => {
+          setOnboardedEmployees(res.data.onboardedEmployees);
+        }),
+      ]);
     } catch (err) {
       console.error("Failed to fetch data:", err);
 
@@ -75,7 +87,7 @@ const OnboardedEmployees = () => {
   };
 
   // Validate 6-digit Employee ID
-  const validateEmployeeId = async (employeeId) => {
+  const validateEmployeeId = async (employeeId, currentEmployeeId = null) => {
     console.log("🔍 Validating Employee ID:", employeeId);
 
     if (!employeeId) {
@@ -88,9 +100,23 @@ const OnboardedEmployees = () => {
       return "Employee ID must be exactly 6 digits";
     }
 
-    // First check locally to avoid unnecessary API calls
+    // Check locally for duplicates, but exclude the current employee being edited
+    console.log(
+      "🔍 Checking for duplicates - Employee ID:",
+      employeeId,
+      "Current Employee ID:",
+      currentEmployeeId
+    );
+    console.log(
+      "🔍 Current onboardedEmployees state:",
+      onboardedEmployees.map((emp) => ({
+        id: emp.id,
+        employee_id: emp.employee_id,
+      }))
+    );
+
     const existingEmployee = onboardedEmployees.find(
-      (emp) => emp.employee_id === employeeId
+      (emp) => emp.employee_id === employeeId && emp.id !== currentEmployeeId
     );
     if (existingEmployee) {
       console.log("❌ Employee ID already exists in this list");
@@ -142,7 +168,7 @@ const OnboardedEmployees = () => {
           [employeeId]: true,
         }));
 
-        const error = await validateEmployeeId(employeeIdValue);
+        const error = await validateEmployeeId(employeeIdValue, employeeId);
 
         // Ensure we only set string errors or null
         const errorMessage = typeof error === "string" ? error : null;
@@ -210,7 +236,10 @@ const OnboardedEmployees = () => {
       }
 
       // Validate Employee ID
-      const employeeIdError = await validateEmployeeId(employee.employee_id);
+      const employeeIdError = await validateEmployeeId(
+        employee.employee_id,
+        employee.id
+      );
       if (employeeIdError) {
         // Ensure we only set string errors
         const errorMessage =

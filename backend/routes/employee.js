@@ -437,7 +437,7 @@ router.get("/onboarding-status", authenticate, async (req, res) => {
     const userId = req.user.id;
 
     const userResult = await query(
-      `SELECT form_submitted, hr_approved, onboarded, status 
+      `SELECT form_submitted, hr_approved, onboarded
        FROM users WHERE id = $1`,
       [userId]
     );
@@ -446,14 +446,13 @@ router.get("/onboarding-status", authenticate, async (req, res) => {
       return res.status(404).json({ error: "User not found" });
     }
 
-    const { form_submitted, hr_approved, onboarded, status } =
+    const { form_submitted, hr_approved, onboarded } =
       userResult.rows[0];
 
     res.json({
       formSubmitted: form_submitted || false,
       hrApproved: hr_approved || false,
       onboarded: onboarded || false,
-      status: status,
       needsForm: !form_submitted,
       needsApproval: form_submitted && !hr_approved,
       canAccessAttendance: onboarded && hr_approved,

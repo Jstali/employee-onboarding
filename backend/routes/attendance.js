@@ -181,6 +181,8 @@ router.get("/my-calendar", authenticate, async (req, res) => {
       [userId, startDate, endDate]
     );
 
+    console.log("🔍 Calendar Debug - Attendance data:", attendanceResult.rows);
+
     // Create calendar data
     const calendar = [];
     const daysInMonth = new Date(targetYear, targetMonth, 0).getDate();
@@ -192,7 +194,12 @@ router.get("/my-calendar", authenticate, async (req, res) => {
       const dayOfWeek = new Date(date).getDay();
       const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
 
-      const attendance = attendanceResult.rows.find((a) => a.date === date);
+      // Convert database date to YYYY-MM-DD format for comparison
+      const attendance = attendanceResult.rows.find((a) => {
+        const dbDate = new Date(a.date).toISOString().split('T')[0];
+        console.log(`🔍 Comparing date: ${date} with DB date: ${dbDate}`);
+        return dbDate === date;
+      });
 
       calendar.push({
         date,

@@ -3,7 +3,7 @@ const bcrypt = require("bcryptjs");
 const { v4: uuidv4 } = require("uuid");
 const { query } = require("../config/database");
 const { authenticate, authorize, logAction } = require("../middleware/auth");
-const { sendOnboardingEmail } = require("../utils/mailer");
+const { sendEmail } = require("../utils/email");
 
 const router = express.Router();
 
@@ -90,7 +90,10 @@ router.post("/employees", async (req, res) => {
 
     if (existingUser.rows.length > 0) {
       return res.status(400).json({
-        error: "Employee with this email already exists",
+        error:
+          "Employee with this email already exists. Use the resend invitation feature to send a new email.",
+        code: "DUPLICATE_EMAIL",
+        existingEmployeeId: existingUser.rows[0].id,
       });
     }
 
@@ -130,17 +133,23 @@ router.post("/employees", async (req, res) => {
     let emailError = null;
 
     try {
-      const emailResult = await sendOnboardingEmail(
-        newUser.email,
-        tempPassword
-      );
-      if (emailResult.success) {
-        console.log("✅ Onboarding email sent successfully to:", newUser.email);
-        emailSent = true;
-      } else {
-        console.error("❌ Failed to send onboarding email:", emailResult.error);
-        emailError = emailResult.error;
-      }
+      const emailSubject = "Employee Onboarding Login Details";
+      const emailHtml = `
+        <h2>Welcome to the company!</h2>
+        <p>Your employee account has been created successfully.</p>
+        <p><strong>Login Details:</strong></p>
+        <ul>
+          <li><strong>Login URL:</strong> <a href="http://localhost:3000/login">http://localhost:3000/login</a></li>
+          <li><strong>Email:</strong> ${newUser.email}</li>
+          <li><strong>Temporary Password:</strong> ${tempPassword}</li>
+        </ul>
+        <p><strong>Important:</strong> Please reset your password after logging in.</p>
+        <p>Best regards,<br>HR Team</p>
+      `;
+
+      await sendEmail(newUser.email, emailSubject, emailHtml);
+      console.log("✅ Onboarding email sent successfully to:", newUser.email);
+      emailSent = true;
     } catch (err) {
       console.error("❌ Failed to send onboarding email:", err);
       emailError = err.message;
@@ -214,7 +223,7 @@ router.get("/employees", async (req, res) => {
     const { status, department, employeeType, showDeleted, search } = req.query;
 
     let queryText = `
-      SELECT u.id, u.name, u.email, u.employee_type, u.department, u.status, u.created_at,
+      SELECT u.id, u.name, u.email, u.employee_type, u.department, u.created_at,
              u.manager_id, m.name as manager_name,
              u.form_submitted, u.hr_approved, u.onboarded
       FROM users u
@@ -224,20 +233,8 @@ router.get("/employees", async (req, res) => {
     let queryParams = [];
     let paramCount = 0;
 
-    // Handle deleted employees filter
-    if (showDeleted === "true") {
-      // Show all employees including deleted ones
-      queryText += ` AND u.status = 'deleted'`;
-    } else {
-      // By default, exclude deleted employees
-      queryText += ` AND u.status != 'deleted'`;
-    }
-
-    if (status) {
-      paramCount++;
-      queryText += ` AND u.status = $${paramCount}`;
-      queryParams.push(status);
-    }
+    // Note: Status filtering has been removed since the status column was removed
+    // All employees are now considered active by default
 
     if (department) {
       paramCount++;
@@ -279,16 +276,12 @@ router.get("/employees", async (req, res) => {
 // Get all managers (users who can be assigned as managers)
 router.get("/managers", async (req, res) => {
   try {
-    // Get users who are HR or have been assigned as managers, and are active
+    // Get managers from master_employees table (these are the predefined managers)
     const result = await query(`
-      SELECT DISTINCT u.id, u.name, u.email, u.role, u.employee_type, u.department
+      SELECT u.id, u.name, u.email, u.role, u.employee_type, u.department
       FROM users u
-      WHERE (u.role = 'hr' OR u.id IN (
-        SELECT DISTINCT manager_id 
-        FROM users 
-        WHERE manager_id IS NOT NULL
-      )) 
-      AND u.status IN ('approved', 'onboarded', 'active')
+      JOIN master_employees me ON u.id = me.user_id
+      WHERE u.name IN ('Pradeep', 'Vamshi', 'Vinod', 'Rakesh')
       ORDER BY u.name
     `);
 
@@ -368,23 +361,26 @@ router.post("/employees/:id/resend-invitation", async (req, res) => {
     let emailError = null;
 
     try {
-      const emailResult = await sendOnboardingEmail(
-        employee.email,
-        tempPassword
+      const emailSubject = "Employee Onboarding Login Details - New Invitation";
+      const emailHtml = `
+        <h2>Welcome back to the company!</h2>
+        <p>A new invitation has been sent to your email address.</p>
+        <p><strong>Login Details:</strong></p>
+        <ul>
+          <li><strong>Login URL:</strong> <a href="http://localhost:3000/login">http://localhost:3000/login</a></li>
+          <li><strong>Email:</strong> ${employee.email}</li>
+          <li><strong>New Temporary Password:</strong> ${tempPassword}</li>
+        </ul>
+        <p><strong>Important:</strong> Please reset your password after logging in.</p>
+        <p>Best regards,<br>HR Team</p>
+      `;
+
+      await sendEmail(employee.email, emailSubject, emailHtml);
+      console.log(
+        "✅ Invitation email resent successfully to:",
+        employee.email
       );
-      if (emailResult.success) {
-        console.log(
-          "✅ Invitation email resent successfully to:",
-          employee.email
-        );
-        emailSent = true;
-      } else {
-        console.error(
-          "❌ Failed to resend invitation email:",
-          emailResult.error
-        );
-        emailError = emailResult.error;
-      }
+      emailSent = true;
     } catch (err) {
       console.error("❌ Failed to resend invitation email:", err);
       emailError = err.message;
@@ -1079,8 +1075,9 @@ router.get("/employee-forms", async (req, res) => {
     const offset = (pageNum - 1) * limitNum;
 
     let queryText = `
-      SELECT u.id, u.name, u.email, u.employee_type, u.department, u.created_at,
+      SELECT DISTINCT u.id, u.name, u.email, u.employee_type, u.department, u.created_at,
              ed.id as form_id, ed.created_at as form_created_at, ed.updated_at as form_updated_at,
+             COALESCE(ed.status, 'pending') as form_status,
              COALESCE(doc_counts.document_count, 0) as document_count
       FROM users u
       INNER JOIN employee_details ed ON u.id = ed.user_id
@@ -1129,12 +1126,12 @@ router.get("/employee-forms", async (req, res) => {
 
     console.log("🔍 Backend Debug - Forms query result:", {
       totalForms: result.rows.length,
-      sampleForm: result.rows[0]
-        ? {
-            id: result.rows[0].id,
-            form_id: result.rows[0].form_id,
-          }
-        : null,
+      allForms: result.rows.map((row) => ({
+        userId: row.id,
+        formId: row.form_id,
+        name: row.name,
+        email: row.email,
+      })),
     });
 
     const pages = Math.ceil(total / limitNum);
@@ -1161,7 +1158,7 @@ router.get("/employee-forms/:id", async (req, res) => {
 
     // Try to find form by form_id first, then by user_id
     let formResult = await query(
-      `SELECT ed.*, u.name, u.email, u.employee_type, u.department, u.status
+      `SELECT ed.*, u.name, u.email, u.employee_type, u.department
        FROM employee_details ed
        JOIN users u ON ed.user_id = u.id
        WHERE ed.id = $1`,
@@ -1171,7 +1168,7 @@ router.get("/employee-forms/:id", async (req, res) => {
     // If not found by form_id, try by user_id
     if (formResult.rows.length === 0) {
       formResult = await query(
-        `SELECT ed.*, u.name, u.email, u.employee_type, u.department, u.status
+        `SELECT ed.*, u.name, u.email, u.employee_type, u.department
          FROM employee_details ed
          JOIN users u ON ed.user_id = u.id
          WHERE u.id = $1`,
@@ -1228,7 +1225,6 @@ router.get("/employee-forms/:id", async (req, res) => {
         email: form.email,
         employeeType: form.employee_type,
         department: form.department,
-        status: form.status,
       },
     };
 
@@ -1325,11 +1321,19 @@ router.delete("/employee-forms/:id", async (req, res) => {
   try {
     const { id } = req.params;
 
+    console.log("🔍 Delete Debug - Attempting to delete form with ID:", id);
+
     // Check if form exists
     const formExists = await query(
       "SELECT id FROM employee_details WHERE id = $1",
       [id]
     );
+
+    console.log("🔍 Delete Debug - Form exists check result:", {
+      formId: id,
+      found: formExists.rows.length > 0,
+      rows: formExists.rows,
+    });
 
     if (formExists.rows.length === 0) {
       return res.status(404).json({ error: "Form not found" });
@@ -1363,7 +1367,7 @@ router.post("/employees/:id/add-to-master", async (req, res) => {
 
     // Check if employee exists and is onboarded
     const employeeResult = await query(
-      `SELECT id, name, email, employee_type, department, status, manager_id, join_date
+      `SELECT id, name, email, employee_type, department, onboarded, manager_id, join_date
        FROM users 
        WHERE id = $1 AND role = 'employee'`,
       [id]
@@ -1376,10 +1380,10 @@ router.post("/employees/:id/add-to-master", async (req, res) => {
     const employee = employeeResult.rows[0];
 
     // Check if employee is onboarded
-    if (employee.status !== "onboarded") {
+    if (!employee.onboarded) {
       return res.status(400).json({
         error: "Employee must be onboarded before adding to master table",
-        currentStatus: employee.status,
+        currentStatus: employee.onboarded ? "onboarded" : "not onboarded",
       });
     }
 
@@ -1519,9 +1523,11 @@ router.get("/onboarded-employees", async (req, res) => {
       LEFT JOIN users m ON u.manager_id = m.id
       WHERE u.role = 'employee' 
         AND u.onboarded = true
-        AND u.id NOT IN (
-          SELECT user_id FROM master_employees
-        )
+        AND (u.id NOT IN (
+          SELECT user_id FROM master_employees WHERE user_id IS NOT NULL
+        ) OR NOT EXISTS (
+          SELECT 1 FROM master_employees WHERE user_id = u.id
+        ))
       ORDER BY u.created_at DESC
     `);
 
@@ -1548,6 +1554,107 @@ router.get("/departments", async (req, res) => {
   } catch (error) {
     console.error("Get departments error:", error);
     res.status(500).json({ error: "Failed to fetch departments" });
+  }
+});
+
+// Update form status
+router.patch("/employee-forms/:id/status", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    console.log("🔍 HR Debug - Updating form status:", {
+      formId: id,
+      newStatus: status,
+    });
+
+    if (!status) {
+      return res.status(400).json({ error: "Status is required" });
+    }
+
+    // Check if form exists in employee_details table
+    const formExists = await query(
+      "SELECT id FROM employee_details WHERE id = $1",
+      [id]
+    );
+
+    if (formExists.rows.length === 0) {
+      return res.status(404).json({ error: "Form not found" });
+    }
+
+    // First, try to add status column if it doesn't exist
+    try {
+      await query(
+        "ALTER TABLE employee_details ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'pending'"
+      );
+      await query(
+        "ALTER TABLE employee_details ADD COLUMN IF NOT EXISTS approved_at TIMESTAMP"
+      );
+      await query(
+        "ALTER TABLE employee_details ADD COLUMN IF NOT EXISTS approved_by UUID"
+      );
+      console.log("✅ Added status columns to employee_details table");
+    } catch (alterError) {
+      console.log(
+        "ℹ️ Status columns already exist or couldn't be added:",
+        alterError.message
+      );
+    }
+
+    // Update the form status in employee_details table
+    let approvedAt = null;
+    let approvedBy = null;
+
+    if (status === "approved") {
+      approvedAt = new Date();
+      approvedBy = req.user.id;
+    }
+
+    const updateResult = await query(
+      `UPDATE employee_details 
+       SET status = $1, 
+           updated_at = CURRENT_TIMESTAMP,
+           approved_at = $2,
+           approved_by = $3
+       WHERE id = $4
+       RETURNING id, status, updated_at, approved_at, approved_by`,
+      [status, approvedAt, approvedBy, id]
+    );
+
+    // If form is approved, also update the user's onboarded status
+    if (status === "approved") {
+      // Get the user_id from the form
+      const formUserResult = await query(
+        "SELECT user_id FROM employee_details WHERE id = $1",
+        [id]
+      );
+
+      if (formUserResult.rows.length > 0) {
+        const userId = formUserResult.rows[0].user_id;
+
+        // Update the user's status fields
+        await query(
+          "UPDATE users SET hr_approved = true, onboarded = true WHERE id = $1",
+          [userId]
+        );
+
+        console.log(
+          "✅ User status updated for user ID:",
+          userId,
+          "- hr_approved: true, onboarded: true"
+        );
+      }
+    }
+
+    console.log("✅ Form status updated successfully:", updateResult.rows[0]);
+
+    res.json({
+      message: "Form status updated successfully",
+      form: updateResult.rows[0],
+    });
+  } catch (error) {
+    console.error("❌ Update form status error:", error);
+    res.status(500).json({ error: "Failed to update form status" });
   }
 });
 

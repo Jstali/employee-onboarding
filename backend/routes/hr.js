@@ -62,6 +62,26 @@ router.get("/check-employee-id/:employeeId", async (req, res) => {
   }
 });
 
+// Check if NXZEN email already exists in the system
+router.get("/check-nxzen-email/:email", async (req, res) => {
+  try {
+    const { email } = req.params;
+
+    // Check in master_employees table
+    const masterResult = await query(
+      "SELECT id FROM master_employees WHERE email = $1",
+      [email]
+    );
+
+    const exists = masterResult.rows.length > 0;
+
+    res.json({ exists });
+  } catch (error) {
+    console.error("Check NXZEN email error:", error);
+    res.status(500).json({ error: "Failed to check NXZEN email" });
+  }
+});
+
 // Create new employee
 router.post("/employees", async (req, res) => {
   try {
@@ -222,39 +242,54 @@ router.get("/employees", async (req, res) => {
     console.log("🔍 HR Debug - Fetching employees...");
     const { status, department, employeeType, showDeleted, search } = req.query;
 
+    // Use the same approach as Master Employee Table - query master_employees directly
     let queryText = `
-      SELECT u.id, u.name, u.email, u.employee_type, u.department, u.created_at,
-             u.manager_id, m.name as manager_name,
-             u.form_submitted, u.hr_approved, u.onboarded
-      FROM users u
-      LEFT JOIN users m ON u.manager_id = m.id
-      WHERE u.role = 'employee'
+      SELECT 
+        me.id,
+        me.user_id as id,
+        me.employee_id,
+        me.name,
+        me.email as nxzen_email,
+        me.personal_email,
+        me.employee_type,
+        me.role,
+        me.status,
+        me.department,
+        me.join_date as created_at,
+        me.manager_id,
+        me.created_at,
+        me.updated_at,
+        manager.name as manager_name,
+        u.form_submitted,
+        u.hr_approved,
+        u.onboarded
+      FROM master_employees me
+      LEFT JOIN master_employees manager ON me.manager_id = manager.id
+      LEFT JOIN users u ON me.user_id = u.id
+      WHERE me.role = 'employee'
     `;
     let queryParams = [];
     let paramCount = 0;
 
-    // Note: Status filtering has been removed since the status column was removed
-    // All employees are now considered active by default
-
     if (department) {
       paramCount++;
-      queryText += ` AND u.department = $${paramCount}`;
+      queryText += ` AND me.department = $${paramCount}`;
       queryParams.push(department);
     }
 
     if (employeeType) {
       paramCount++;
-      queryText += ` AND u.employee_type = $${paramCount}`;
+      queryText += ` AND me.employee_type = $${paramCount}`;
       queryParams.push(employeeType);
     }
 
     if (search) {
       paramCount++;
-      queryText += ` AND (u.name ILIKE $${paramCount} OR u.email ILIKE $${paramCount})`;
+      queryText += ` AND (me.name ILIKE $${paramCount} OR me.email ILIKE $${paramCount})`;
       queryParams.push(`%${search}%`);
     }
 
-    queryText += " ORDER BY u.created_at DESC";
+    queryText += " ORDER BY me.created_at DESC";
 
     console.log("🔍 HR Debug - Final query:", queryText);
     console.log("🔍 HR Debug - Query params:", queryParams);
@@ -1363,7 +1398,7 @@ router.delete("/employee-forms/:id", async (req, res) => {
 router.post("/employees/:id/add-to-master", async (req, res) => {
   try {
     const { id } = req.params;
-    const { managerId, employeeId } = req.body;
+    const { managerId, employeeId, nxzenEmail } = req.body;
 
     // Check if employee exists and is onboarded
     const employeeResult = await query(
@@ -1412,6 +1447,31 @@ router.post("/employees/:id/add-to-master", async (req, res) => {
       });
     }
 
+    // Validate NXZEN Email
+    if (!nxzenEmail) {
+      return res.status(400).json({
+        error: "NXZEN Email is required",
+      });
+    }
+
+    if (!nxzenEmail.includes("@nxzen.com")) {
+      return res.status(400).json({
+        error: "NXZEN Email must be @nxzen.com domain",
+      });
+    }
+
+    // Check if NXZEN Email already exists in master table
+    const existingNxzenEmail = await query(
+      "SELECT id FROM master_employees WHERE email = $1",
+      [nxzenEmail]
+    );
+
+    if (existingNxzenEmail.rows.length > 0) {
+      return res.status(400).json({
+        error: "NXZEN Email already exists in master table",
+      });
+    }
+
     // Check if Employee ID already exists in master table
     const existingEmployeeId = await query(
       "SELECT id FROM master_employees WHERE employee_id = $1",
@@ -1451,15 +1511,16 @@ router.post("/employees/:id/add-to-master", async (req, res) => {
       });
     }
 
-    // Add employee to master_employees table with the new Employee ID field
+    // Add employee to master_employees table with the new Employee ID field and NXZEN Email
     await query(
-      `INSERT INTO master_employees (user_id, employee_id, name, email, employee_type, role, status, department, join_date, manager_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+      `INSERT INTO master_employees (user_id, employee_id, name, email, personal_email, employee_type, role, status, department, join_date, manager_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
       [
         employee.id,
         employeeId, // New 6-digit Employee ID
         employee.name,
-        employee.email,
+        nxzenEmail, // NXZEN Email (company email)
+        employee.email, // Personal email (stored as personal_email)
         employee.employee_type,
         "employee",
         "active", // Set status to active in master table
@@ -1485,6 +1546,7 @@ router.post("/employees/:id/add-to-master", async (req, res) => {
         employeeId: employee.id,
         employeeName: employee.name,
         employeeEmail: employee.email,
+        nxzenEmail: nxzenEmail,
         assignedEmployeeId: employeeId,
         managerId: managerId,
         managerName: managerResult.rows[0].name,
@@ -1493,7 +1555,7 @@ router.post("/employees/:id/add-to-master", async (req, res) => {
     );
 
     console.log(
-      `✅ Employee ${employee.name} (ID: ${employeeId}) added to master table with manager ${managerResult.rows[0].name}`
+      `✅ Employee ${employee.name} (ID: ${employeeId}, NXZEN Email: ${nxzenEmail}) added to master table with manager ${managerResult.rows[0].name}`
     );
 
     res.json({
@@ -1501,6 +1563,7 @@ router.post("/employees/:id/add-to-master", async (req, res) => {
       employee: {
         ...employee,
         employee_id: employeeId,
+        nxzen_email: nxzenEmail,
         manager_id: managerId,
         manager_name: managerResult.rows[0].name,
       },
@@ -1690,6 +1753,140 @@ router.get("/statistics", async (req, res) => {
   } catch (error) {
     console.error("Get HR statistics error:", error);
     res.status(500).json({ error: "Failed to fetch statistics" });
+  }
+});
+
+// Update employee information (including nxzen email)
+router.put("/employees/:id/update", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { nxzenEmail, employeeId, managerId, department, employeeType } =
+      req.body;
+
+    console.log("🔍 HR Debug - Updating employee:", id, "with data:", req.body);
+
+    // Check if employee exists
+    const employeeResult = await query(
+      `SELECT u.id, u.name, u.email, u.employee_type, u.department, u.onboarded
+       FROM users u
+       WHERE u.id = $1 AND u.role = 'employee'`,
+      [id]
+    );
+
+    if (employeeResult.rows.length === 0) {
+      return res.status(404).json({ error: "Employee not found" });
+    }
+
+    const employee = employeeResult.rows[0];
+
+    // Check if employee is in master_employees table
+    const masterResult = await query(
+      "SELECT id FROM master_employees WHERE user_id = $1",
+      [id]
+    );
+
+    if (masterResult.rows.length === 0) {
+      return res.status(400).json({
+        error: "Employee must be in master table before updating nxzen email",
+      });
+    }
+
+    // Validate nxzen email if provided
+    if (nxzenEmail && !nxzenEmail.includes("@nxzen.com")) {
+      return res.status(400).json({
+        error: "NXZEN Email must be @nxzen.com domain",
+      });
+    }
+
+    // Check if nxzen email already exists (if different from current)
+    if (nxzenEmail) {
+      const existingEmailResult = await query(
+        "SELECT id FROM master_employees WHERE email = $1 AND user_id != $2",
+        [nxzenEmail, id]
+      );
+
+      if (existingEmailResult.rows.length > 0) {
+        return res.status(400).json({
+          error: "NXZEN Email already exists for another employee",
+        });
+      }
+    }
+
+    // Update master_employees table
+    const updateFields = [];
+    const updateValues = [];
+    let paramCount = 0;
+
+    if (nxzenEmail) {
+      paramCount++;
+      updateFields.push(`email = $${paramCount}`);
+      updateValues.push(nxzenEmail);
+    }
+
+    if (employeeId) {
+      paramCount++;
+      updateFields.push(`employee_id = $${paramCount}`);
+      updateValues.push(employeeId);
+    }
+
+    if (managerId) {
+      paramCount++;
+      updateFields.push(`manager_id = $${paramCount}`);
+      updateValues.push(managerId);
+    }
+
+    if (department) {
+      paramCount++;
+      updateFields.push(`department = $${paramCount}`);
+      updateValues.push(department);
+    }
+
+    if (employeeType) {
+      paramCount++;
+      updateFields.push(`employee_type = $${paramCount}`);
+      updateValues.push(employeeType);
+    }
+
+    if (updateFields.length === 0) {
+      return res.status(400).json({ error: "No fields to update" });
+    }
+
+    paramCount++;
+    updateValues.push(id);
+
+    const updateQuery = `
+      UPDATE master_employees 
+      SET ${updateFields.join(", ")}, updated_at = CURRENT_TIMESTAMP
+      WHERE user_id = $${paramCount}
+      RETURNING *
+    `;
+
+    const updateResult = await query(updateQuery, updateValues);
+
+    // Log action
+    await logAction(
+      req.user.id,
+      "employee_updated",
+      {
+        employee_id: id,
+        employee_name: employee.name,
+        updated_fields: Object.keys(req.body).filter(
+          (key) => req.body[key] !== undefined
+        ),
+        nxzen_email: nxzenEmail,
+      },
+      req
+    );
+
+    console.log("✅ Employee updated successfully:", updateResult.rows[0]);
+
+    res.json({
+      message: "Employee updated successfully",
+      employee: updateResult.rows[0],
+    });
+  } catch (error) {
+    console.error("❌ Update employee error:", error);
+    res.status(500).json({ error: "Failed to update employee" });
   }
 });
 

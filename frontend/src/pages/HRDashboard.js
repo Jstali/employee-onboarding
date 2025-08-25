@@ -53,7 +53,9 @@ const HRDashboard = () => {
   const [deleteType, setDeleteType] = useState("soft"); // "soft" or "hard"
   const [showFormModal, setShowFormModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showEmployeeEditModal, setShowEmployeeEditModal] = useState(false);
   const [selectedForm, setSelectedForm] = useState(null);
+  const [selectedEmployee, setSelectedEmployee] = useState(null);
 
   const [createFormData, setCreateFormData] = useState({
     name: "",
@@ -281,6 +283,29 @@ const HRDashboard = () => {
         "Failed to assign manager: " +
           (err.response?.data?.error || err.message)
       );
+    }
+  };
+
+  const handleEditEmployee = (employee) => {
+    setSelectedEmployee(employee);
+    setShowEmployeeEditModal(true);
+  };
+
+  const handleUpdateEmployee = async (updatedData) => {
+    try {
+      console.log("🔍 HRDashboard Debug - Updating employee:", updatedData);
+
+      await api.put(`/hr/employees/${selectedEmployee.id}/update`, updatedData);
+
+      setSuccessMessage("Employee updated successfully");
+      setShowEmployeeEditModal(false);
+      setSelectedEmployee(null);
+
+      // Refresh dashboard data
+      fetchDashboardData();
+    } catch (err) {
+      console.error("❌ HRDashboard Debug - Update employee error:", err);
+      setErrorMessage(err.response?.data?.error || "Failed to update employee");
     }
   };
 
@@ -953,7 +978,7 @@ const HRDashboard = () => {
                       {employee.name}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {employee.email}
+                      {employee.nxzen_email || "Not Assigned"}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 capitalize">
                       {employee.employee_type}
@@ -999,6 +1024,27 @@ const HRDashboard = () => {
                             </option>
                           ))}
                         </select>
+
+                        {/* Edit Button */}
+                        <button
+                          onClick={() => handleEditEmployee(employee)}
+                          className="text-blue-600 hover:text-blue-900 ml-2 p-1 rounded hover:bg-blue-50"
+                          title="Edit Employee"
+                        >
+                          <svg
+                            className="h-4 w-4"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                            />
+                          </svg>
+                        </button>
 
                         {/* Delete Button - Show for all employees */}
                         <button
@@ -1675,6 +1721,144 @@ const HRDashboard = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Employee Modal */}
+      {showEmployeeEditModal && selectedEmployee && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+          <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+            <div className="mt-3">
+              <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-blue-100">
+                <svg
+                  className="h-6 w-6 text-blue-600"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                  />
+                </svg>
+              </div>
+              <h3 className="text-lg font-medium text-gray-900 mt-4 text-center">
+                Edit Employee: {selectedEmployee.name}
+              </h3>
+
+              <div className="mt-4 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    NXZEN Email
+                  </label>
+                  <input
+                    type="email"
+                    defaultValue={selectedEmployee.nxzen_email || ""}
+                    placeholder="employee@nxzen.com"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    id="nxzenEmail"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Employee ID
+                  </label>
+                  <input
+                    type="text"
+                    defaultValue={selectedEmployee.employee_id || ""}
+                    placeholder="123456"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    id="employeeId"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Department
+                  </label>
+                  <select
+                    defaultValue={selectedEmployee.department || ""}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    id="department"
+                  >
+                    <option value="">Select Department</option>
+                    <option value="IT">IT</option>
+                    <option value="HR">HR</option>
+                    <option value="Finance">Finance</option>
+                    <option value="Marketing">Marketing</option>
+                    <option value="Sales">Sales</option>
+                    <option value="Operations">Operations</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Employee Type
+                  </label>
+                  <select
+                    defaultValue={selectedEmployee.employee_type || ""}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    id="employeeType"
+                  >
+                    <option value="">Select Type</option>
+                    <option value="intern">Intern</option>
+                    <option value="contract">Contract</option>
+                    <option value="fulltime">Full Time</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Manager
+                  </label>
+                  <select
+                    defaultValue={selectedEmployee.manager_id || ""}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    id="managerId"
+                  >
+                    <option value="">No Manager</option>
+                    {managers.map((manager) => (
+                      <option key={manager.id} value={manager.id}>
+                        {manager.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex justify-center space-x-3 mt-6">
+                <button
+                  onClick={() => {
+                    setShowEmployeeEditModal(false);
+                    setSelectedEmployee(null);
+                  }}
+                  className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    const formData = {
+                      nxzenEmail: document.getElementById("nxzenEmail").value,
+                      employeeId: document.getElementById("employeeId").value,
+                      department: document.getElementById("department").value,
+                      employeeType:
+                        document.getElementById("employeeType").value,
+                      managerId:
+                        document.getElementById("managerId").value || null,
+                    };
+                    handleUpdateEmployee(formData);
+                  }}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  Update Employee
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

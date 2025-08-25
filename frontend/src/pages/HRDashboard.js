@@ -44,6 +44,7 @@ const HRDashboard = () => {
   const [successMessage, setSuccessMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [sendingEmployeeMail, setSendingEmployeeMail] = useState(false);
+  const [resendingInvitation, setResendingInvitation] = useState(null); // Track which employee is being processed
   const [filters, setFilters] = useState({
     employeeType: "",
     showDeleted: false, // Add filter for deleted employees
@@ -166,6 +167,7 @@ const HRDashboard = () => {
     try {
       setErrorMessage(""); // Clear any previous error
       setSuccessMessage(""); // Clear any previous success message
+      setResendingInvitation(employeeId); // Set loading state
 
       console.log(
         "🔍 Frontend Debug - Resending invitation to employee ID:",
@@ -181,10 +183,26 @@ const HRDashboard = () => {
         response.data
       );
 
-      setSuccessMessage(
-        `Invitation email resent successfully to ${response.data.employee.email}! New temporary password has been sent.`
-      );
-      setTimeout(() => setSuccessMessage(""), 5000); // Clear message after 5 seconds
+      // Check if response has the expected structure
+      if (
+        response.data &&
+        response.data.employee &&
+        response.data.employee.email
+      ) {
+        setSuccessMessage(
+          `Invitation email resent successfully to ${response.data.employee.email}! New temporary password has been sent.`
+        );
+      } else {
+        setSuccessMessage(
+          `Invitation email resent successfully! New temporary password has been sent.`
+        );
+      }
+
+      // Keep message visible longer for better user experience
+      setTimeout(() => setSuccessMessage(""), 8000); // Clear message after 8 seconds
+
+      // Refresh dashboard data to show any updates
+      fetchDashboardData();
     } catch (err) {
       console.error("❌ Frontend Debug - Resend invitation error:", err);
       console.error("❌ Frontend Debug - Error response:", err.response?.data);
@@ -194,7 +212,9 @@ const HRDashboard = () => {
         "Failed to resend invitation email: " +
           (err.response?.data?.error || err.message)
       );
-      setTimeout(() => setErrorMessage(""), 5000); // Clear message after 5 seconds
+      setTimeout(() => setErrorMessage(""), 8000); // Clear message after 8 seconds
+    } finally {
+      setResendingInvitation(null); // Clear loading state
     }
   };
 
@@ -988,10 +1008,17 @@ const HRDashboard = () => {
                         {/* Resend Invitation Button */}
                         <button
                           onClick={() => handleResendInvitation(employee.id)}
-                          className="text-blue-600 hover:text-blue-900 bg-blue-100 hover:bg-blue-200 px-2 py-1 rounded text-xs font-medium"
+                          disabled={resendingInvitation === employee.id}
+                          className={`px-2 py-1 rounded text-xs font-medium ${
+                            resendingInvitation === employee.id
+                              ? "text-gray-400 bg-gray-100 cursor-not-allowed"
+                              : "text-blue-600 hover:text-blue-900 bg-blue-100 hover:bg-blue-200"
+                          }`}
                           title="Resend Invitation Email"
                         >
-                          📧 Resend
+                          {resendingInvitation === employee.id
+                            ? "⏳ Sending..."
+                            : "📧 Resend"}
                         </button>
                         {/* Delete Button - Show for all employees */}
                         <button

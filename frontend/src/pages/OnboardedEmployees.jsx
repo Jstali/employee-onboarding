@@ -16,6 +16,8 @@ const OnboardedEmployees = () => {
   const [assigningManager, setAssigningManager] = useState(null);
   const [employeeIdErrors, setEmployeeIdErrors] = useState({});
   const [validatingEmployeeIds, setValidatingEmployeeIds] = useState({});
+  const [nxzenEmailErrors, setNxzenEmailErrors] = useState({});
+  const [validatingNxzenEmails, setValidatingNxzenEmails] = useState({});
 
   // Manager list - will be populated from backend
   const [predefinedManagers, setPredefinedManagers] = useState([]);
@@ -86,6 +88,73 @@ const OnboardedEmployees = () => {
     }
   };
 
+  // Validate NXZEN Email
+  const validateNxzenEmail = async (email, currentEmployeeId = null) => {
+    console.log("🔍 Validating NXZEN Email:", email);
+
+    if (!email) {
+      console.log("❌ NXZEN Email is required");
+      return "NXZEN Email is required";
+    }
+
+    if (!email.includes("@nxzen.com")) {
+      console.log("❌ NXZEN Email must be @nxzen.com domain");
+      return "NXZEN Email must be @nxzen.com domain";
+    }
+
+    // Check for duplicates in the current list, excluding the current employee being edited
+    console.log("🔍 Checking for NXZEN Email duplicates:");
+    console.log("  - Email to check:", email);
+    console.log("  - Current employee ID:", currentEmployeeId);
+    console.log(
+      "  - All onboarded employees:",
+      onboardedEmployees.map((emp) => ({
+        id: emp.id,
+        nxzen_email: emp.nxzen_email,
+      }))
+    );
+
+    // If the email is the same as the current employee's email, it's not a duplicate
+    const currentEmployee = onboardedEmployees.find(
+      (emp) => emp.id === currentEmployeeId
+    );
+    if (currentEmployee && currentEmployee.nxzen_email === email) {
+      console.log("✅ Same email as current employee - not a duplicate");
+      return null;
+    }
+
+    const existingEmployee = onboardedEmployees.find(
+      (emp) => emp.nxzen_email === email && emp.id !== currentEmployeeId
+    );
+
+    if (existingEmployee) {
+      console.log(
+        "❌ NXZEN Email already exists in this list for employee:",
+        existingEmployee.id
+      );
+      return "NXZEN Email already exists in this list";
+    }
+
+    // Check if NXZEN Email already exists in the entire system via backend
+    try {
+      console.log("🔍 Checking NXZEN Email in backend...");
+      const response = await api.get(
+        `/hr/check-nxzen-email/${encodeURIComponent(email)}`
+      );
+
+      if (response.data.exists) {
+        console.log("❌ NXZEN Email already exists in the system");
+        return "NXZEN Email already exists in the system";
+      }
+
+      console.log("✅ NXZEN Email is available");
+      return null;
+    } catch (err) {
+      console.error("❌ Error checking NXZEN Email:", err);
+      return "Error validating NXZEN Email";
+    }
+  };
+
   // Validate 6-digit Employee ID
   const validateEmployeeId = async (employeeId, currentEmployeeId = null) => {
     console.log("🔍 Validating Employee ID:", employeeId);
@@ -141,6 +210,96 @@ const OnboardedEmployees = () => {
       // If backend check fails, we'll let the backend handle the final validation
       // during the assignment process
       return null;
+    }
+  };
+
+  // Handle NXZEN Email input change
+  const handleNxzenEmailChange = async (employeeId, emailValue) => {
+    // Get the current employee's existing NXZEN email before updating
+    const currentEmployee = onboardedEmployees.find(
+      (emp) => emp.id === employeeId
+    );
+    const currentNxzenEmail = currentEmployee?.nxzen_email;
+
+    // Update the employee's nxzen_email field immediately for better UX
+    setOnboardedEmployees((prev) =>
+      prev.map((emp) =>
+        emp.id === employeeId ? { ...emp, nxzen_email: emailValue } : emp
+      )
+    );
+
+    // Clear previous error if email changed
+    if (emailValue !== currentNxzenEmail) {
+      setNxzenEmailErrors((prev) => ({
+        ...prev,
+        [employeeId]: null,
+      }));
+    }
+
+    // If email is the same as current, clear errors and don't validate
+    if (emailValue === currentNxzenEmail) {
+      setNxzenEmailErrors((prev) => ({
+        ...prev,
+        [employeeId]: null,
+      }));
+      return;
+    }
+
+    // Validate NXZEN Email asynchronously
+    if (emailValue) {
+      try {
+        // Set loading state
+        setValidatingNxzenEmails((prev) => ({
+          ...prev,
+          [employeeId]: true,
+        }));
+
+        const error = await validateNxzenEmail(emailValue, employeeId);
+
+        // Ensure we only set string errors or null
+        const errorMessage = typeof error === "string" ? error : null;
+
+        console.log(
+          `NXZEN Email validation for ${emailValue}:`,
+          error,
+          "Type:",
+          typeof error,
+          "Setting errorMessage:",
+          errorMessage
+        );
+
+        setNxzenEmailErrors((prev) => {
+          const newState = {
+            ...prev,
+            [employeeId]: errorMessage,
+          };
+          console.log("New nxzenEmailErrors state:", newState);
+          return newState;
+        });
+      } catch (err) {
+        console.error("Validation error:", err);
+
+        // Handle authentication errors
+        if (err.response?.status === 401) {
+          setError("Authentication failed. Please log in again.");
+          // Clear invalid token and redirect to login
+          localStorage.removeItem("token");
+          window.location.href = "/login";
+          return;
+        }
+
+        // Set a generic error message if validation fails
+        setNxzenEmailErrors((prev) => ({
+          ...prev,
+          [employeeId]: "Validation failed",
+        }));
+      } finally {
+        // Clear loading state
+        setValidatingNxzenEmails((prev) => ({
+          ...prev,
+          [employeeId]: false,
+        }));
+      }
     }
   };
 
@@ -251,6 +410,23 @@ const OnboardedEmployees = () => {
         return;
       }
 
+      // Validate NXZEN Email
+      if (!employee.nxzen_email) {
+        setError("Please enter a NXZEN Email");
+        setTimeout(() => setError(""), 5000);
+        return;
+      }
+
+      const nxzenEmailError = await validateNxzenEmail(
+        employee.nxzen_email,
+        employee.id
+      );
+      if (nxzenEmailError) {
+        setError(nxzenEmailError);
+        setTimeout(() => setError(""), 5000);
+        return;
+      }
+
       // Validate Manager selection
       if (!employee.selectedManager) {
         setError("Please select a manager");
@@ -268,10 +444,11 @@ const OnboardedEmployees = () => {
         throw new Error("Invalid manager selected");
       }
 
-      // Call backend API to assign manager, Employee ID, and add to master table
+      // Call backend API to assign manager, Employee ID, NXZEN Email, and add to master table
       await api.post(`/hr/employees/${employeeId}/add-to-master`, {
         managerId: manager.id,
         employeeId: employee.employee_id,
+        nxzenEmail: employee.nxzen_email,
       });
 
       // Remove employee from onboarded list
@@ -279,7 +456,7 @@ const OnboardedEmployees = () => {
         prev.filter((emp) => emp.id !== employeeId)
       );
 
-      const successMsg = `Employee ID ${employee.employee_id} assigned and Manager ${employee.selectedManager} assigned successfully! Employee moved to master table.`;
+      const successMsg = `Employee ID ${employee.employee_id}, NXZEN Email ${employee.nxzen_email}, and Manager ${employee.selectedManager} assigned successfully! Employee moved to master table.`;
       setSuccessMessage(successMsg);
       setTimeout(() => setSuccessMessage(""), 5000);
     } catch (err) {
@@ -343,8 +520,9 @@ const OnboardedEmployees = () => {
               🚀 Onboarded Employees
             </h1>
             <p className="text-gray-600 mt-2">
-              Manage employees who are onboarded but need Employee ID assignment
-              and Manager assignment before joining the master table
+              Manage employees who are onboarded but need Employee ID
+              assignment, NXZEN Email assignment, and Manager assignment before
+              joining the master table
             </p>
           </div>
           <div className="flex items-center space-x-4">
@@ -394,7 +572,8 @@ const OnboardedEmployees = () => {
           </h2>
           <p className="text-sm text-gray-600 mt-1">
             These employees are onboarded and ready to be assigned a 6-digit
-            Employee ID and Manager before moving to the master table
+            Employee ID, NXZEN Email, and Manager before moving to the master
+            table
           </p>
         </div>
 
@@ -417,8 +596,8 @@ const OnboardedEmployees = () => {
                   All caught up!
                 </h3>
                 <p className="mt-1 text-sm text-gray-500">
-                  All onboarded employees have been assigned Employee IDs and
-                  Managers and moved to the master table.
+                  All onboarded employees have been assigned Employee IDs, NXZEN
+                  Emails, and Managers and moved to the master table.
                 </p>
               </div>
             )}
@@ -430,6 +609,9 @@ const OnboardedEmployees = () => {
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-blue-600 uppercase tracking-wider">
                     Employee ID *
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-blue-600 uppercase tracking-wider">
+                    NXZEN Email *
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-blue-600 uppercase tracking-wider">
                     Name
@@ -507,6 +689,24 @@ const OnboardedEmployees = () => {
                           )}
                       </div>
                     </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="relative">
+                        <input
+                          type="email"
+                          placeholder="employee@nxzen.com"
+                          value={employee.nxzen_email || ""}
+                          onChange={(e) =>
+                            handleNxzenEmailChange(employee.id, e.target.value)
+                          }
+                          className="w-48 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                        />
+                        {nxzenEmailErrors[employee.id] && (
+                          <div className="absolute top-full left-0 mt-1 text-xs text-red-600 bg-red-50 px-2 py-1 rounded border border-red-200 z-10">
+                            {nxzenEmailErrors[employee.id]}
+                          </div>
+                        )}
+                      </div>
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                       {employee.name}
                     </td>
@@ -548,20 +748,30 @@ const OnboardedEmployees = () => {
                         onClick={() => handleAssignManagerAndId(employee.id)}
                         disabled={
                           !employee.employee_id ||
+                          !employee.nxzen_email ||
                           !employee.selectedManager ||
                           (employeeIdErrors[employee.id] &&
                             typeof employeeIdErrors[employee.id] === "string" &&
                             !(
                               employeeIdErrors[employee.id] instanceof Promise
                             )) ||
+                          (nxzenEmailErrors[employee.id] &&
+                            typeof nxzenEmailErrors[employee.id] === "string" &&
+                            !(
+                              nxzenEmailErrors[employee.id] instanceof Promise
+                            )) ||
                           assigningManager === employee.id
                         }
                         className={`inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white focus:outline-none focus:ring-2 focus:ring-offset-2 ${
                           employee.employee_id &&
+                          employee.nxzen_email &&
                           employee.selectedManager &&
                           (!employeeIdErrors[employee.id] ||
                             typeof employeeIdErrors[employee.id] !== "string" ||
                             employeeIdErrors[employee.id] instanceof Promise) &&
+                          (!nxzenEmailErrors[employee.id] ||
+                            typeof nxzenEmailErrors[employee.id] !== "string" ||
+                            nxzenEmailErrors[employee.id] instanceof Promise) &&
                           assigningManager !== employee.id
                             ? "bg-blue-600 hover:bg-blue-700 focus:ring-blue-500"
                             : "bg-gray-400 cursor-not-allowed"
@@ -596,13 +806,17 @@ const OnboardedEmployees = () => {
             100001, 245678). Each ID must be unique.
           </p>
           <p>
+            <strong>NXZEN Email:</strong> Must be a valid email with @nxzen.com
+            domain (e.g., employee@nxzen.com). Each email must be unique.
+          </p>
+          <p>
             <strong>Manager Assignment:</strong> Select from the predefined
             list: Pradeep, Vamshi, Vinod, Rakesh.
           </p>
           <p>
-            <strong>Workflow:</strong> Both Employee ID and Manager must be
-            assigned before the employee can be moved to the Master Employee
-            Table.
+            <strong>Workflow:</strong> Employee ID, NXZEN Email, and Manager
+            must be assigned before the employee can be moved to the Master
+            Employee Table.
           </p>
         </div>
       </div>
